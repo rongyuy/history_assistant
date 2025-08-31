@@ -1,0 +1,11 @@
+# Frontend dependencies
+/frontend/node_modules
+
+# Backend virtual environment
+/backend/venv
+/backend/__pycache__
+
+# IDE and OS specific files
+.vscode/
+.idea/
+.DS_Store
