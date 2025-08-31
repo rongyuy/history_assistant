@@ -1,14 +1,36 @@
-# 此处编写调用维基百科API的逻辑
+# backend/app/services/wikipedia_service.py 
+
 import wikipediaapi
+from app.services import llm_service 
+
+wiki = wikipediaapi.Wikipedia(
+    user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
+    language='zh'
+)
 
 def get_topic_data(topic_name: str) -> dict:
-    # TODO: 在这里实现完整的维基百科数据获取逻辑
-    print("Wikipedia Service: Getting data for topic:", topic_name)
-    # 返回示例数据
+    page = wiki.page(topic_name)
+
+    if not page.exists():
+        return {
+            "summary": f"抱歉,在维基百科中找不到关于“{topic_name}”的页面。",
+            "timeline": []
+        }
+
+    # 1. 从LLM获取摘要和时间线
+    structured_data = llm_service.generate_summary_and_timeline(topic_name, page.text)
+
+    # --- 关键调试步骤：打印从AI获取的原始数据 ---
+    print("----------- RAW AI RESPONSE -----------")
+    print(structured_data)
+    print("-------------------------------------")
+
+    # 2. 直接从获取的数据中提取，并提供默认值以防万一
+    summary = structured_data.get("summary", "AI未能生成摘要。")
+    timeline = structured_data.get("timeline", [])
+    
+    # 3. 组合最终结果
     return {
-        "summary": f"这是关于“{topic_name}”的维基百科摘要...",
-        "references": [
-            {"id": 1, "text": "参考来源1 [示例]", "url": "http://example.com/ref1"},
-            {"id": 2, "text": "参考来源2 [示例]", "url": "http://example.com/ref2"},
-        ]
+        "summary": summary,
+        "timeline": timeline
     }

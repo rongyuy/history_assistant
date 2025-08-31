@@ -5,3 +5,4 @@ requests
 trafilatura
 wikipedia-api
 python-dotenv
+openai

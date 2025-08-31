@@ -5,7 +5,7 @@ from typing import List, Optional
 
 # --- LLM 对话相关 ---
 class ChatMessage(BaseModel):
-    role: str  # "user" or "assistant"
+    role: str
     content: str
 
 class AIChatRequest(BaseModel):
@@ -14,7 +14,11 @@ class AIChatRequest(BaseModel):
     current_module: str
     context_text: Optional[str] = None
 
-# --- 维基百科相关 ---
+# --- 维基百科相关 (修改后) ---
+class TimelineEvent(BaseModel):
+    year: str
+    event: str
+
 class WikiReference(BaseModel):
     id: int
     text: str
@@ -22,7 +26,8 @@ class WikiReference(BaseModel):
 
 class WikiTopicResponse(BaseModel):
     summary: str
-    references: List[WikiReference]
+    # 新增时间线字段
+    timeline: List[TimelineEvent]
 
 # --- 网页抓取相关 ---
 class ScrapeRequest(BaseModel):
