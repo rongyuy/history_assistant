@@ -13,7 +13,7 @@
 + **前端 (Frontend)**: 用户直接交互的Web界面，使用 **React.js** 构建。
 + **后端 (Backend)**: 作为前端与AI模型之间的桥梁，使用 **Python** 和 **FastAPI** 实现。
 + **AI模型 & 数据源**:
-    - **大语言模型 (LLM) API**: 调用成熟的LLM API（如 智谱AI, GPT）作为认知向导。
+    - **大语言模型 (LLM) API**: 调用成熟的LLM API（如 DEEPSEEK）作为认知向导。
     - **维基百科 (Wikipedia) API**: 集成维基百科API作为可验证的数据源。
 
 ## 技术栈
@@ -22,7 +22,7 @@
 | **前端** | React.js, Ant Design, React Flow |
 | **后端** | Python, FastAPI |
 | **数据库** | SQLite (开发) / Supabase (部署) |
-| **AI核心** | 商业LLM API (如: 智谱AI) |
+| **AI核心** | 商业LLM API (如: DEEPSEEK) |
 | **数据源** | Wikipedia-API (Python库) |
 | **内容抓取** | Trafilatura (Python库) |
 | **部署** | Vercel (前端) / Serverless (后端) |
