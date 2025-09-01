@@ -4,9 +4,6 @@ import os
 import json
 from openai import OpenAI, APITimeoutError # 导入APITimeoutError
 from app.schemas.main_schemas import AIChatRequest
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # 修改客户端初始化，增加超时设置（例如30秒）
 client = OpenAI(

@@ -20,11 +20,6 @@ def get_topic_data(topic_name: str) -> dict:
     # 1. 从LLM获取摘要和时间线
     structured_data = llm_service.generate_summary_and_timeline(topic_name, page.text)
 
-    # --- 关键调试步骤：打印从AI获取的原始数据 ---
-    print("----------- RAW AI RESPONSE -----------")
-    print(structured_data)
-    print("-------------------------------------")
-
     # 2. 直接从获取的数据中提取，并提供默认值以防万一
     summary = structured_data.get("summary", "AI未能生成摘要。")
     timeline = structured_data.get("timeline", [])
