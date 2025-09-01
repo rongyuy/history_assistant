@@ -49,7 +49,7 @@ export default function InquiryPage() {
   return (
     // 使用 AntdApp 包裹，以便在任何地方调用 message, Modal 等
     <AntdApp>
-      <Layout style={{ minHeight: '100vh', background: '#fff' }}>
+      <Layout style={{ height: '100vh', background: '#fff', overflow: 'hidden' }}>
         <Header
           style={{
             background: '#fff',
@@ -79,12 +79,28 @@ export default function InquiryPage() {
           <Button type="primary" onClick={handleSearch} style={{marginLeft: 8}}>开始探究</Button>
         </Header>
 
-        <Layout>
-          <Content style={{ padding: 24, paddingBottom: 120 }}>
+        <Layout style={{ height: 'calc(100vh - 64px)' }}>
+          <Content
+            style={{
+              padding: 24,
+              paddingBottom: 120,
+              overflowY: 'auto', // 关键修改点
+              height:'100%' 
+            }}
+          >
             <CoreExplorer topic={topic} />
           </Content>
 
-          <Sider width={420} theme="light" style={{ padding: 24, borderLeft: '1px dashed #eaeaea' }}>
+          <Sider
+            width={420}
+            theme="light"
+            style={{
+              padding: 24,
+              borderLeft: '1px dashed #eaeaea',
+              overflowY: 'auto', 
+              height: '100%', // 新增：确保Sider高度占满父容器，使其overflow生效
+            }}
+          >
             <NotesWorkspace topic={topic} />
           </Sider>
         </Layout>
