@@ -12,6 +12,11 @@ export const getWikiData = (topic) => {
   return apiClient.get(`/topic/${topic}`);
 };
 
+// 封装获取观点辨析数据的API
+export const getViewpointAnalysis = (topic) => {
+  return apiClient.get(`/viewpoints/${topic}`);
+};
+
 // 封装AI聊天的API
 export const postChatMessage = (chatRequest) => {
   // chatRequest 的结构需要匹配后端 AIChatRequest 模型

@@ -28,7 +28,7 @@ import {
   LinkOutlined,
 } from '@ant-design/icons';
 // 导入我们创建的API函数
-import { getWikiData, postChatMessage, scrapeUrl } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessage, scrapeUrl } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -135,8 +135,9 @@ function CoreExplorer({ topic }) {
       message.loading({ content: `正在加载“${topic}”的探究资料...`, key: 'data' });
 
       try {
-        const [wikiRes] = await Promise.all([
+        const [wikiRes, viewpointsRes] = await Promise.all([
           getWikiData(topic),
+          getViewpointAnalysis(topic),
         ]);
 
         // 增加一个检查，确保后端真的返回了数据
@@ -146,15 +147,12 @@ function CoreExplorer({ topic }) {
 
         setCoreData({
           wikiSummary: wikiRes.data,
-          viewpoints: {
-            points: [
-              { side: 'A（英方观点）', text: '强调自由贸易与商业权益。' },
-              { side: 'B（清方观点）', text: '强调禁绝鸦片与国家主权。' },
+          viewpoints: viewpointsRes.data || {
+            viewpoints: [
+              { side: 'A（观点一）', text: '观点一描述' },
+              { side: 'B（观点二）', text: '观点二描述' },
             ],
-            debates: [
-              '关于战争命名的不同表述与价值判断',
-              '对条约不平等性的历史评价',
-            ],
+            debates: ['讨论要点1', '讨论要点2'],
           },
           sources: [
             { title: '《林则徐奏折》（片段）', excerpt: '……坚决查禁鸦片，维护国计民生……' },
@@ -277,7 +275,7 @@ function ViewpointAnalysis({ data }) {
           <List
             size="small"
             header={<Text strong>对立观点（A/B）</Text>}
-            dataSource={data.points}
+            dataSource={data.viewpoints || []}
             renderItem={(it) => (
               <List.Item>
                 <Space align="start">
@@ -291,7 +289,7 @@ function ViewpointAnalysis({ data }) {
           <List
             size="small"
             header={<Text strong>维基讨论页摘录（要点）</Text>}
-            dataSource={data.debates}
+            dataSource={data.debates || []}
             renderItem={(t) => <List.Item>{t}</List.Item>}
           />
         </Space>
