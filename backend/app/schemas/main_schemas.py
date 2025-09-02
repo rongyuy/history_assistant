@@ -29,6 +29,15 @@ class WikiTopicResponse(BaseModel):
     # 新增时间线字段
     timeline: List[TimelineEvent]
 
+# --- 观点辨析相关 ---
+class Viewpoint(BaseModel):
+    side: str  # 如 "A（英方观点）" 或 "B（清方观点）"
+    text: str  # 观点描述
+
+class ViewpointAnalysisResponse(BaseModel):
+    viewpoints: List[Viewpoint]  # 对立观点列表
+    debates: List[str]  # 维基讨论页要点列表
+
 # --- 网页抓取相关 ---
 class ScrapeRequest(BaseModel):
     url: str

@@ -13,7 +13,7 @@ def get_topic_data(topic_name: str) -> dict:
 
     if not page.exists():
         return {
-            "summary": f"抱歉,在维基百科中找不到关于“{topic_name}”的页面。",
+            "summary": f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。",
             "timeline": []
         }
 
@@ -28,4 +28,39 @@ def get_topic_data(topic_name: str) -> dict:
     return {
         "summary": summary,
         "timeline": timeline
+    }
+
+def get_topic_discussion_data(topic_name: str) -> dict:
+    """
+    获取维基百科讨论页内容，用于观点辨析
+    """
+    # 获取主页面
+    page = wiki.page(topic_name)
+    
+    if not page.exists():
+        return {
+            "viewpoints": [],
+            "debates": [f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"]
+        }
+    
+    # 获取讨论页
+    talk_page = wiki.page(f"讨论:{topic_name}")
+    
+    # 准备讨论页内容
+    talk_content = ""
+    if talk_page.exists():
+        talk_content = talk_page.text
+    else:
+        talk_content = f"关于'{topic_name}'的讨论页不存在或为空。"
+    
+    # 使用LLM分析对立观点和讨论页内容
+    analysis_data = llm_service.analyze_viewpoints_and_debates(topic_name, page.text, talk_content)
+    
+    # 提取分析结果
+    viewpoints = analysis_data.get("viewpoints", [])
+    debates = analysis_data.get("debates", [])
+    
+    return {
+        "viewpoints": viewpoints,
+        "debates": debates
     }

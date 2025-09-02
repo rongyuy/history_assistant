@@ -98,3 +98,88 @@ def generate_summary_and_timeline(topic: str, wiki_content: str) -> dict:
         # 打印更详细的错误，方便我们看到是不是又有认证问题或其他错误
         print(f"LLM生成摘要和时间线时发生未知错误: {e}") 
         return {"summary": "AI在生成摘要时遇到了一个未知问题，请查看后端日志。", "timeline": []}
+
+def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: str) -> dict:
+    """
+    分析历史事件的对立观点和维基讨论页内容
+    """
+    print(f"LLM Service: 分析'{topic}'的对立观点和讨论内容...")
+    
+    # 限制内容长度
+    max_length = 10000
+    if len(main_content) > max_length:
+        main_content = main_content[:max_length] + "\n\n[主页面内容已截断]"
+    
+    if len(talk_content) > max_length:
+        talk_content = talk_content[:max_length] + "\n\n[讨论页内容已截断]"
+    
+    system_prompt = f"""
+你是一名专业的历史学家助手。你的任务是分析关于'{topic}'的历史事件，从维基百科主页面和讨论页内容中提取对立观点和争议要点。
+
+你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字：
+{{
+  "viewpoints": [
+    {{ "side": "A（观点一）", "text": "观点一的详细描述" }},
+    {{ "side": "B（观点二）", "text": "观点二的详细描述" }}
+  ],
+  "debates": [
+    "讨论页中的争议要点1",
+    "讨论页中的争议要点2",
+    "讨论页中的争议要点3"
+  ]
+}}
+
+要求：
+1. viewpoints应该包含2-3个主要的对立观点，每个观点要有明确的立场标识
+2. debates应该提取讨论页中的关键争议点，每个要点要简洁明了
+3. 如果讨论页内容较少，可以基于主页面内容推断可能的争议点
+4. 所有内容都要客观中立，避免价值判断
+"""
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"""
+请分析以下关于'{topic}'的维基百科内容：
+
+【主页面内容】
+{main_content}
+
+【讨论页内容】
+{talk_content}
+
+请提取对立观点和争议要点。
+"""}
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: 成功为'{topic}'分析了观点和争议。")
+        return data
+
+    except APITimeoutError:
+        print(f"LLM分析'{topic}'观点和争议时超时。")
+        return {
+            "viewpoints": [
+                {"side": "A（观点一）", "text": "AI分析超时，请检查网络连接。"},
+                {"side": "B（观点二）", "text": "AI分析超时，请检查网络连接。"}
+            ],
+            "debates": ["AI分析超时，请检查网络连接。"]
+        }
+    except Exception as e:
+        print(f"LLM分析观点和争议时发生未知错误: {e}")
+        return {
+            "viewpoints": [
+                {"side": "A（观点一）", "text": "AI分析遇到问题，请查看后端日志。"},
+                {"side": "B（观点二）", "text": "AI分析遇到问题，请查看后端日志。"}
+            ],
+            "debates": ["AI分析遇到问题，请查看后端日志。"]
+        }
