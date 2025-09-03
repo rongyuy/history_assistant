@@ -27,3 +27,8 @@ export const postChatMessage = (chatRequest) => {
 export const scrapeUrl = (url) => {
   return apiClient.post('/scrape', { url });
 };
+
+// 新增: 封装获取史料对比数据的API
+export const getSourcesComparison = (topic) => {
+  return apiClient.get(`/sources/${topic}`);
+};

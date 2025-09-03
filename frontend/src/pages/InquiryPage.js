@@ -19,16 +19,16 @@ import {
   App as AntdApp, // antd 的应用级组件, 用于全局 message, Modal 等
   message,
   Spin, // 引入加载动画
-  Modal, // 引入模态框
+  //Modal, // 引入模态框
 } from 'antd';
 import {
   BookOutlined,
   BulbOutlined,
   MessageOutlined,
-  LinkOutlined,
+  //LinkOutlined,
 } from '@ant-design/icons';
 // 导入我们创建的API函数
-import { getWikiData, getViewpointAnalysis, postChatMessage, scrapeUrl } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -118,8 +118,8 @@ function CoreExplorer({ topic }) {
   const [error, setError] = useState(null);
   const [coreData, setCoreData] = useState({
     wikiSummary: { summary: '', timeline: [] },
-    viewpoints: { points: [], debates: [] },
-    sources: [],
+    viewpoints: { viewpoints: [], debates: [] },
+    sources: { sources: [] },
   });
   
   // 通过 AntdApp.useApp() 这个钩子来获取 antd 的全局API实例
@@ -135,9 +135,10 @@ function CoreExplorer({ topic }) {
       message.loading({ content: `正在加载“${topic}”的探究资料...`, key: 'data' });
 
       try {
-        const [wikiRes, viewpointsRes] = await Promise.all([
+        const [wikiRes, viewpointsRes, sourcesRes] = await Promise.all([
           getWikiData(topic),
           getViewpointAnalysis(topic),
+          getSourcesComparison(topic),
         ]);
 
         // 增加一个检查，确保后端真的返回了数据
@@ -154,10 +155,7 @@ function CoreExplorer({ topic }) {
             ],
             debates: ['讨论要点1', '讨论要点2'],
           },
-          sources: [
-            { title: '《林则徐奏折》（片段）', excerpt: '……坚决查禁鸦片，维护国计民生……' },
-            { title: '《英国商人日记》（片段）', excerpt: '……贸易受阻，英方诉求得不到满足……' },
-          ],
+          sources: sourcesRes.data,
         });
 
         message.success({ content: '资料加载成功!', key: 'data', duration: 2 });
@@ -181,7 +179,7 @@ function CoreExplorer({ topic }) {
     };
 
     fetchData();
-  }, [topic]);
+  }, [topic,message]);
 
   if (loading) {
     return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在加载核心资料..." /></div>;
@@ -215,7 +213,7 @@ function CoreExplorer({ topic }) {
           {
             key: "sources",
             label: <ModuleHeader icon={<BookOutlined />} title="模块三：史料分析" hint="多史料片段对读" />,
-            children: <SourcesAnalysis data={coreData.sources} />,
+            children: <SourcesComparisonCard data={coreData.sources} />, // 使用新增的组件
           },
           {
             key: "reflection",
@@ -297,23 +295,42 @@ function ViewpointAnalysis({ data }) {
     );
 }
   
-/** 史料分析：(修改后，接收props) */
-function SourcesAnalysis({ data }) {
+/** 新增: 史料对比卡片 */
+function SourcesComparisonCard({ data }) {
+    if (!data || !data.sources || data.sources.length === 0) {
+        return (
+            <Card size="small" bordered style={{ borderStyle: "dashed" }}>
+                <Empty description="未能找到可供对比的史料。" />
+            </Card>
+        );
+    }
+  
     return (
       <Card size="small" bordered style={{ borderStyle: "dashed" }}>
-        <List
-          itemLayout="vertical"
-          dataSource={data}
-          renderItem={(it) => (
-            <List.Item key={it.title}>
-              <List.Item.Meta title={<Text strong>{it.title}</Text>} />
-              <Paragraph style={{ marginBottom: 0 }}>{it.excerpt}</Paragraph>
-            </List.Item>
-          )}
-        />
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          {data.sources.map((source, index) => (
+            <div key={index}>
+              <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+                史料{index + 1}：{source.title}
+              </Title>
+              <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                视角：{source.viewpoint}
+              </Paragraph>
+              <div style={{ padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 6, backgroundColor: '#fafafa' }}>
+                <Paragraph style={{ marginBottom: 0 }}>
+                  {source.snippet}
+                </Paragraph>
+              </div>
+              <a href={source.url} target="_blank" rel="noopener noreferrer">
+                查看原始链接
+              </a>
+            </div>
+          ))}
+        </Space>
       </Card>
     );
-}
+  }
+  
 
 /** 反思总结：(保持不变) */
 function ReflectionSection() {

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from app.schemas.main_schemas import WikiTopicResponse, ViewpointAnalysisResponse
-from app.services import wikipedia_service
+from app.schemas.main_schemas import WikiTopicResponse, ViewpointAnalysisResponse, SourceComparisonResponse
+from app.services import wikipedia_service, llm_service
 
 router = APIRouter()
 
@@ -16,3 +16,17 @@ def get_viewpoint_analysis(topic_name: str):
     """
     data = wikipedia_service.get_topic_discussion_data(topic_name)
     return data
+
+@router.get("/sources/{topic_name}", response_model=SourceComparisonResponse)
+def get_source_comparison(topic_name: str):
+    """
+    新增：获取指定历史主题的参考文献，并进行多视角对比。
+    """
+    # 1. 获取参考文献内容
+    scraped_contents = wikipedia_service.get_references_with_content(topic_name)
+    
+    # 2. 调用LLM服务进行分析和对比
+    comparison_data = llm_service.generate_source_comparison(topic_name, scraped_contents)
+    
+    # 3. 封装并返回
+    return comparison_data

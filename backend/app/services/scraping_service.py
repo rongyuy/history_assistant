@@ -19,6 +19,13 @@ def fetch_html_content(url: str) -> dict:
         # 如果服务器返回错误码(如404,500),则主动抛出异常
         response.raise_for_status()
 
+        # --- 【核心修改点】 ---
+        # 修正编码。如果 requests 库的默认解码和根据内容分析的解码不一致，
+        # 就使用分析出的编码重新解码，这能大概率解决中文乱码问题。
+        if response.encoding != response.apparent_encoding:
+            response.encoding = response.apparent_encoding
+        # --- 【修改结束】 ---
+
         # 2. 提取正文
         # favor_recall=True 会尝试提取更多内容,更适合我们的场景
         content = trafilatura.extract(response.text, favor_recall=True)

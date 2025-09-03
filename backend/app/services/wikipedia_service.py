@@ -2,11 +2,55 @@
 
 import wikipediaapi
 from app.services import llm_service 
+from app.services.scraping_service import fetch_url_content # 导入抓取函数
+import requests
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
     language='zh'
 )
+
+# 新增函数：通过调用MediaWiki API获取外部链接
+def get_external_links_from_wiki_api(topic_name: str) -> list:
+    """
+    通过直接调用 MediaWiki API 来获取页面所有外部链接。
+    """
+    S = requests.Session()
+    URL = "https://zh.wikipedia.org/w/api.php"
+    
+    # API 参数，请求获取页面的外部链接（prop=extlinks）
+    PARAMS = {
+        "action": "query",
+        "prop": "extlinks",
+        "titles": topic_name,
+        "format": "json",
+        "ellimit": "max" # 获取所有外部链接
+    }
+
+    HEADERS = {
+        'User-Agent': 'HistoryAssistant/1.0 (rongyuy@example.com)'
+    }
+    
+    try:
+        response = S.get(url=URL, params=PARAMS, headers=HEADERS,timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        # 解析返回的JSON数据，提取链接列表
+        pages = data.get("query", {}).get("pages", {})
+        references_urls = []
+        for page_id, page_data in pages.items():
+            if "extlinks" in page_data:
+                for link_obj in page_data["extlinks"]:
+                    references_urls.append(link_obj["*"])
+        return references_urls
+    except requests.RequestException as e:
+        print(f"调用MediaWiki API失败: {e}")
+        return []
+    except Exception as e:
+        print(f"解析MediaWiki API响应时出错: {e}")
+        return []
+
 
 def get_topic_data(topic_name: str) -> dict:
     page = wiki.page(topic_name)
@@ -64,3 +108,20 @@ def get_topic_discussion_data(topic_name: str) -> dict:
         "viewpoints": viewpoints,
         "debates": debates
     }
+
+def get_references_with_content(topic_name: str) -> dict:
+    """
+    获取维基百科的参考文献及其内容。
+    """
+    references_urls = get_external_links_from_wiki_api(topic_name)
+    
+    scraped_contents = []
+    # 仅抓取前5个外部链接以避免超时
+    for url in references_urls[:5]:
+        print(f"正在抓取参考链接: {url}")
+        content_data = fetch_url_content(url)
+        # 将原始URL也存入，方便后续使用
+        content_data['url'] = url
+        scraped_contents.append(content_data)
+        
+    return scraped_contents

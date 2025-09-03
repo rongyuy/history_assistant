@@ -47,3 +47,13 @@ class ScrapeResponse(BaseModel):
     url: str
     content: Optional[str] = None
     message: Optional[str] = None
+
+# --- 史料对比相关 (新增) ---
+class SourceMaterial(BaseModel):
+    title: str
+    url: str
+    snippet: str
+    viewpoint: str
+
+class SourceComparisonResponse(BaseModel):
+    sources: List[SourceMaterial]

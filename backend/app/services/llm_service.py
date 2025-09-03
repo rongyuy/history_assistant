@@ -4,6 +4,7 @@ import os
 import json
 from openai import OpenAI, APITimeoutError # 导入APITimeoutError
 from app.schemas.main_schemas import AIChatRequest
+from typing import List, Dict # 确保导入 List 和 Dict
 
 # 修改客户端初始化，增加超时设置（例如30秒）
 client = OpenAI(
@@ -183,3 +184,70 @@ def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: 
             ],
             "debates": ["AI分析遇到问题，请查看后端日志。"]
         }
+    
+def generate_source_comparison(topic: str, source_contents: List[dict]) -> dict:
+    """
+    新增：根据抓取到的参考文献内容，让LLM进行对比和摘录。
+    """
+    print(f"LLM Service: Generating source comparison for {topic}...")
+
+    # 构造prompt，确保LLM不编造数据
+    system_prompt = f"""
+你是一名专业的历史学家助手。你的任务是分析提供的关于“{topic}”的参考文献内容，并从中挑选出两份最有代表性、能够体现不同视角的史料。
+
+请严格遵守以下规则：
+1.  从提供的参考文献列表中，选择两份内容最能体现不同立场或观点的史料。
+2.  对于选定的每一份史料，请提取一个简短、核心的片段（不要超过200字），并注明其出处（title和url）以及它所代表的视角。
+3.  你的输出必须是JSON格式，结构如下，不要添加任何额外文字。
+4.  严禁编造任何信息！所有引用的片段、标题、URL都必须直接来自提供的参考文献内容。如果找不到合适的材料，请返回一个空列表。
+
+{{
+  "sources": [
+    {{ "title": "史料标题1", "url": "史料URL1", "snippet": "摘录的片段1", "viewpoint": "所代表的视角1" }},
+    {{ "title": "史料标题2", "url": "史料URL2", "snippet": "摘录的片段2", "viewpoint": "所代表的视角2" }}
+  ]
+}}
+"""
+    
+    # 将所有参考文献内容整合成一个字符串，供LLM分析
+    context_text = ""
+    if source_contents:
+        for i, item in enumerate(source_contents):
+            # 仅处理抓取成功的内容
+            if item.get("success") and item.get("content"):
+                content = item["content"]
+                # 限制每个源的长度，避免超出LLM的token限制
+                max_source_length = 5000 
+                if len(content) > max_source_length:
+                    content = content[:max_source_length] + "..."
+                
+                context_text += f"\n\n--- 史料{i+1}：{item.get('title', '未知标题')} ---\n"
+                context_text += f"URL: {item.get('url', '无')}\n"
+                context_text += f"内容：{content}"
+
+    if not context_text:
+        return {"sources": []} # 如果没有可用的史料，返回空列表
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": context_text}
+            ],
+            max_tokens=2000,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: 成功为'{topic}'生成了史料对比内容。")
+        return data
+
+    except APITimeoutError:
+        print(f"LLM为'{topic}'生成史料对比时超时。")
+        return {"sources": [{"title": "错误", "url": "", "snippet": "AI生成史料对比超时，请检查网络或稍后再试。", "viewpoint": ""}]}
+    except Exception as e:
+        print(f"LLM生成史料对比时发生未知错误: {e}")
+        return {"sources": [{"title": "错误", "url": "", "snippet": "AI生成史料对比时遇到问题，请查看后端日志。", "viewpoint": ""}]}
