@@ -57,3 +57,48 @@ class SourceMaterial(BaseModel):
 
 class SourceComparisonResponse(BaseModel):
     sources: List[SourceMaterial]
+
+# --- 数据库交互相关 (新增) ---
+
+class NoteBase(BaseModel):
+    id: str
+    content: str
+    type: str
+    position_x: int
+    position_y: int
+
+class Note(NoteBase):
+    inquiry_id: str
+
+    class Config:
+        from_attributes = True
+
+class ConnectionBase(BaseModel):
+    id: str
+    source_note_id: str
+    target_note_id: str
+
+class Connection(ConnectionBase):
+    inquiry_id: str
+    
+    class Config:
+        from_attributes = True
+
+class InquiryBase(BaseModel):
+    topic: str
+
+class InquiryCreate(InquiryBase):
+    pass
+
+class Inquiry(InquiryBase):
+    id: str
+    user_id: str
+    notes: List[Note] = []
+    connections: List[Connection] = []
+
+    class Config:
+        from_attributes = True
+        
+class NotesAndConnections(BaseModel):
+    notes: List[Note]
+    connections: List[Connection]
