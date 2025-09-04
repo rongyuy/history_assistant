@@ -28,7 +28,7 @@ import {
   //LinkOutlined,
 } from '@ant-design/icons';
 // 导入我们创建的API函数
-import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -203,7 +203,7 @@ function CoreExplorer({ topic }) {
           {
             key: "facts",
             label: <ModuleHeader icon={<BookOutlined />} title="模块一：史实认知" hint="维基百科摘要、关键时间线" />,
-            children: <WikiSummaryCard data={coreData.wikiSummary} />,
+            children: <WikiSummaryCard data={coreData.wikiSummary} topic={topic} />,
           },
           {
             key: "views",
@@ -239,11 +239,90 @@ function ModuleHeader({ icon, title, hint }) {
 }
 
 /** 史实认知：维基摘要/时间线 (修改后) */
-function WikiSummaryCard({ data }) {
+function WikiSummaryCard({ data, topic }) {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [fullContent, setFullContent] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const { message } = AntdApp.useApp();
+
+    const handleReadOriginal = async () => {
+        if (fullContent) {
+            // 如果已经加载过，直接切换展开状态
+            setIsExpanded(!isExpanded);
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await getWikiFullContent(topic);
+            setFullContent(response.data);
+            setIsExpanded(true);
+            message.success('原文加载成功！');
+        } catch (error) {
+            console.error('获取原文失败:', error);
+            message.error('获取原文失败，请稍后重试');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
-        <Card size="small" bordered style={{ borderStyle: "dashed" }}>
+        <Card 
+            size="small" 
+            bordered 
+            style={{ 
+                borderStyle: "dashed",
+                height: isExpanded ? 'auto' : 'auto', // 展开时高度自适应
+                minHeight: isExpanded ? '600px' : 'auto' // 展开时最小高度增加一倍
+            }}
+        >
             <Space direction="vertical" style={{ width: "100%" }}>
-                <Paragraph style={{ marginBottom: 0 }}>{data.summary || "暂无摘要"}</Paragraph>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Paragraph style={{ marginBottom: 0, flex: 1 }}>{data.summary || "暂无摘要"}</Paragraph>
+                    <Button 
+                        type="link" 
+                        size="small"
+                        loading={loading}
+                        onClick={handleReadOriginal}
+                        style={{ marginLeft: 8, flexShrink: 0 }}
+                    >
+                        {isExpanded ? '收起原文' : '阅读原文'}
+                    </Button>
+                </div>
+                
+                {isExpanded && fullContent && (
+                    <>
+                        <Divider dashed style={{ margin: "8px 0" }} />
+                        <div style={{ 
+                            backgroundColor: '#f8f9fa', 
+                            padding: '12px', 
+                            borderRadius: '6px',
+                            border: '1px solid #e9ecef',
+                            maxHeight: '400px',
+                            overflowY: 'auto'
+                        }}>
+                            <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+                                {fullContent.title}
+                            </Title>
+                            <div style={{ 
+                                whiteSpace: 'pre-wrap', 
+                                fontSize: '13px',
+                                lineHeight: '1.6',
+                                color: '#495057'
+                            }}>
+                                {fullContent.content}
+                            </div>
+                            {fullContent.url && (
+                                <div style={{ marginTop: 8, textAlign: 'right' }}>
+                                    <a href={fullContent.url} target="_blank" rel="noopener noreferrer">
+                                        在维基百科中查看完整页面
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+                
                 <Divider dashed style={{ margin: "8px 0" }} />
                 
                 <List

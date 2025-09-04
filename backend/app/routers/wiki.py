@@ -30,3 +30,11 @@ def get_source_comparison(topic_name: str):
     
     # 3. 封装并返回
     return comparison_data
+
+@router.get("/full-content/{topic_name}")
+def get_wiki_full_content(topic_name: str):
+    """
+    获取维基百科页面的完整原始内容，用于"阅读原文"功能
+    """
+    data = wikipedia_service.get_wiki_full_content(topic_name)
+    return data

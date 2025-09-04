@@ -32,3 +32,8 @@ export const scrapeUrl = (url) => {
 export const getSourcesComparison = (topic) => {
   return apiClient.get(`/sources/${topic}`);
 };
+
+// 新增: 封装获取维基百科完整原始内容的API
+export const getWikiFullContent = (topic) => {
+  return apiClient.get(`/full-content/${topic}`);
+};

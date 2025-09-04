@@ -125,3 +125,28 @@ def get_references_with_content(topic_name: str) -> dict:
         scraped_contents.append(content_data)
         
     return scraped_contents
+
+def get_wiki_full_content(topic_name: str) -> dict:
+    """
+    获取维基百科页面的完整原始内容，用于"阅读原文"功能
+    """
+    page = wiki.page(topic_name)
+    
+    if not page.exists():
+        return {
+            "title": f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。",
+            "content": "",
+            "url": ""
+        }
+    
+    # 获取完整的页面内容
+    full_content = page.text
+    
+    # 获取页面的URL
+    page_url = page.fullurl
+    
+    return {
+        "title": page.title,
+        "content": full_content,
+        "url": page_url
+    }
