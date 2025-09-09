@@ -150,3 +150,34 @@ def get_wiki_full_content(topic_name: str) -> dict:
         "content": full_content,
         "url": page_url
     }
+
+# --- 新增函数 ---
+def get_structured_outline(topic_name: str) -> dict:
+    """
+    获取结构化大纲，用于笔记模块
+    """
+    page = wiki.page(topic_name)
+    if not page.exists():
+        return {
+            "topic": topic_name,
+            "timeline": "维基百科中找不到该主题，请手动填写。",
+            "causality": "",
+            "figures": "",
+            "viewpoints": "",
+            "evidence": "",
+            "conclusion": ""
+        }
+    
+    # 调用LLM服务生成结构化大纲
+    outline_data = llm_service.generate_outline(topic_name, page.text)
+    
+    # 组合最终结果，确保所有字段都存在
+    return {
+        "topic": outline_data.get("topic", topic_name),
+        "timeline": outline_data.get("timeline", ""),
+        "causality": outline_data.get("causality", ""),
+        "figures": outline_data.get("figures", ""),
+        "viewpoints": outline_data.get("viewpoints", ""),
+        "evidence": outline_data.get("evidence", ""),
+        "conclusion": outline_data.get("conclusion", "")
+    }

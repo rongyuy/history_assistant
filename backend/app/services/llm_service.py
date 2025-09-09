@@ -10,7 +10,7 @@ from typing import List, Dict # 确保导入 List 和 Dict
 client = OpenAI(
     api_key=os.environ.get("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com",
-    timeout=30.0,  # <-- 增加30秒超时
+    timeout=60.0,  # <-- 增加30秒超时
 )
 
 def get_socratic_response(request: AIChatRequest) -> str:
@@ -251,3 +251,57 @@ def generate_source_comparison(topic: str, source_contents: List[dict]) -> dict:
     except Exception as e:
         print(f"LLM生成史料对比时发生未知错误: {e}")
         return {"sources": [{"title": "错误", "url": "", "snippet": "AI生成史料对比时遇到问题，请查看后端日志。", "viewpoint": ""}]}
+    
+# --- 新增函数 ---
+def generate_outline(topic: str, content: str) -> dict:
+    """
+    使用LLM从维基百科内容中提取结构化大纲
+    """
+    system_prompt = f"""
+你是一个专业的历史研究助理。
+你的任务是根据提供的维基百科页面内容，为历史研究主题“{topic}”生成一个结构化的学习大纲。
+输出格式必须严格遵循以下JSON模式，不包含任何额外文本或Markdown格式：
+{{
+  "topic": "主题（研究问题/课题）",
+  "timeline": "时间线（关键事件：时间、地点、人物、简述）",
+  "causality": "因果链（直接原因/深层原因/触发事件 → 过程 → 结果/影响）",
+  "figures": "人物/势力（立场、目标、行动、相互关系）",
+  "viewpoints": "观点与史学争鸣（不同史家/学派观点 + 论据）",
+  "evidence": "证据节点（摘录/数据/图表，指向原始史料或二手文献）",
+  "conclusion": "结论/反思（你的判断、局限性、未解问题）"
+}}
+
+要求：
+1. 根据提供的内容，对每一个字段进行简要但全面的总结。
+2. 如果内容中缺少某个字段的信息，请留空。
+3. 所有字段的内容都应基于维基百科文章，保持客观中立。
+"""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"请分析以下关于'{topic}'的维基百科页面内容，并生成一个结构化的大纲：\n\n{content}"}
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: 成功为'{topic}'生成了结构化大纲。")
+        return data
+    except Exception as e:
+        print(f"LLM Service: 调用失败，错误信息: {e}")
+        # 如果出错，返回一个空模板
+        return {
+            "topic": topic,
+            "timeline": "",
+            "causality": "",
+            "figures": "",
+            "viewpoints": "",
+            "evidence": "",
+            "conclusion": ""
+        }

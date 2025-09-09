@@ -37,3 +37,9 @@ export const getSourcesComparison = (topic) => {
 export const getWikiFullContent = (topic) => {
   return apiClient.get(`/full-content/${topic}`);
 };
+
+// --- 新增API ---
+// 封装获取结构化大纲的API
+export const getStructuredOutline = (topic) => {
+    return apiClient.get(`/outline/${topic}`);
+};

@@ -14,7 +14,7 @@ import {
   Tabs,
   Empty,
   FloatButton,
-  Tooltip,
+  //Tooltip,
   Checkbox,
   App as AntdApp, // antd 的应用级组件, 用于全局 message, Modal 等
   message,
@@ -26,9 +26,11 @@ import {
   BulbOutlined,
   MessageOutlined,
   //LinkOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 // 导入我们创建的API函数
-import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -41,6 +43,7 @@ const { TextArea } = Input;
 export default function InquiryPage() {
   const [topic, setTopic] = useState('鸦片战争');
   const [inputValue, setInputValue] = useState('鸦片战争');
+  const [savedConclusion, setSavedConclusion] = useState(''); // 新增状态，用于保存结论文本
 
   const handleSearch = () => {
     setTopic(inputValue);
@@ -88,7 +91,7 @@ export default function InquiryPage() {
               height:'100%' 
             }}
           >
-            <CoreExplorer topic={topic} />
+            <CoreExplorer topic={topic} onSaveConclusion={setSavedConclusion} />
           </Content>
 
           <Sider
@@ -101,7 +104,7 @@ export default function InquiryPage() {
               height: '100%', // 新增：确保Sider高度占满父容器，使其overflow生效
             }}
           >
-            <NotesWorkspace topic={topic} />
+            <NotesWorkspace topic={topic} savedConclusion={savedConclusion} />
           </Sider>
         </Layout>
 
@@ -112,7 +115,7 @@ export default function InquiryPage() {
 }
 
 /** 左侧 70%：核心探究区 (修改后) */
-function CoreExplorer({ topic }) {
+function CoreExplorer({ topic, onSaveConclusion }) {
   // 使用 state 来管理从后端获取的数据
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -218,7 +221,7 @@ function CoreExplorer({ topic }) {
           {
             key: "reflection",
             label: <ModuleHeader icon={<BulbOutlined />} title="模块四：反思总结" hint="引导用户回顾并形成结论" />,
-            children: <ReflectionSection />,
+            children: <ReflectionSection onSaveReflection={onSaveConclusion} />,
           },
         ]}
       />
@@ -411,53 +414,121 @@ function SourcesComparisonCard({ data }) {
   }
   
 
-/** 反思总结：(保持不变) */
-function ReflectionSection() {
-    const [checks, setChecks] = useState([false, false, false]);
-    const [conclusion, setConclusion] = useState('');
-  
-    const items = [
-      '我能陈述冲突的直接起因与深层原因',
-      '我能举出至少两条支持 A/B 观点的证据',
-      '我能形成自己的判断并用证据支撑',
-    ];
-  
-    const update = (i) => (e) => {
-      const next = [...checks];
-      next[i] = e.target.checked;
-      setChecks(next);
-    };
-  
-    const done = checks.every(Boolean);
-  
-    return (
-      <Card size="small" bordered style={{ borderStyle: 'dashed' }}>
+/** 反思总结*/
+function ReflectionSection({ onSaveReflection }) {
+  const items = [
+    '我能陈述冲突的直接起因与深层原因',
+    '我能举出至少两条支持 A/B 观点的证据',
+    '我能形成自己的判断并用证据支撑',
+    '我能思考历史事件的意义、与当下的联系'
+  ];
+
+  const [reflections, setReflections] = useState(() =>
+    items.reduce((acc, _, index) => {
+      acc[index] = { checked: false, content: '' };
+      return acc;
+    }, {})
+  );
+
+  const [otherThoughts, setOtherThoughts] = useState('');
+
+  const handleCheckChange = (index) => (e) => {
+    const isChecked = e.target.checked;
+    setReflections(prev => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        checked: isChecked,
+        content: isChecked ? prev[index].content : ''
+      }
+    }));
+  };
+
+  const handleContentChange = (index) => (e) => {
+    setReflections(prev => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        content: e.target.value
+      }
+    }));
+  };
+
+  const handleSave = () => {
+    let conclusionText = '';
+    items.forEach((label, index) => {
+      if (reflections[index].checked) {
+        conclusionText += `- ${label}\n`;
+        if (reflections[index].content) {
+          conclusionText += `  - ${reflections[index].content}\n`;
+        }
+      }
+    });
+
+    if (otherThoughts) {
+      conclusionText += `\n其他思考：\n${otherThoughts}`;
+    }
+
+    onSaveReflection(conclusionText);
+    message.success('反思内容已保存到笔记大纲！');
+  };
+
+  const handleClear = () => {
+    const initialReflections = items.reduce((acc, _, index) => {
+      acc[index] = { checked: false, content: '' };
+      return acc;
+    }, {});
+    setReflections(initialReflections);
+    setOtherThoughts('');
+  };
+
+  return (
+    <Card size="small" bordered style={{ borderStyle: 'dashed' }}>
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {items.map((label, index) => (
+          <div key={index}>
+            <Checkbox
+              checked={reflections[index]?.checked}
+              onChange={handleCheckChange(index)}
+            >
+              {label}
+            </Checkbox>
+            {reflections[index]?.checked && (
+              <div style={{ marginTop: 8, paddingLeft: 24 }}>
+                <TextArea
+                  rows={2}
+                  placeholder={`请填写你对“${label}”的具体思考...`}
+                  value={reflections[index]?.content}
+                  onChange={handleContentChange(index)}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+
+        <Divider dashed style={{ margin: '8px 0' }} />
+
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Space direction="vertical">
-            {items.map((label, i) => (
-              <Checkbox key={i} checked={checks[i]} onChange={update(i)}>
-                {label}
-              </Checkbox>
-            ))}
-          </Space>
-          <Divider dashed style={{ margin: '8px 0' }} />
+          <Text strong>其他思考</Text>
           <TextArea
             rows={4}
-            placeholder="写下你的结论（要点式/短文均可）"
-            value={conclusion}
-            onChange={(e) => setConclusion(e.target.value)}
+            placeholder="在这里自由地记录你的任何其他想法或疑问..."
+            value={otherThoughts}
+            onChange={(e) => setOtherThoughts(e.target.value)}
           />
-          <Space>
-            <Tooltip title={done ? '勾选项已完成' : '建议先完成上面的要点勾选'}>
-              <Button type="primary" onClick={() => message.success('已保存总结（示例）')}>
-                保存总结
-              </Button>
-            </Tooltip>
-            <Button onClick={() => setConclusion('')}>清空</Button>
-          </Space>
         </Space>
-      </Card>
-    );
+
+        <Space style={{ marginTop: 8 }}>
+          <Button type="primary" onClick={handleSave}>
+            保存所有反思
+          </Button>
+          <Button onClick={handleClear}>
+            清空
+          </Button>
+        </Space>
+      </Space>
+    </Card>
+  );
 }
 
 /** 底部 AI 引导 (修改后) */
@@ -557,81 +628,327 @@ function AIChatDock({ topic }) {
     );
   }
 
-/** 右侧 30%：笔记工作区 (保持不变) */
-function NotesWorkspace({ topic }) {
-    const items = [
-      {
-        key: 'note',
-        label: '自由笔记',
-        children: <FreeNote />,
-      },
-      {
-        key: 'outline',
-        label: '结构化模板',
-        children: <OutlineTemplate />,
-      },
-      {
-        key: 'mindmap',
-        label: '思维导图（占位）',
-        children: <Empty description="后续可接入思维导图组件，如 react-flow" />,
-      },
-    ];
-  
-    return (
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        <Title level={5} style={{ marginBottom: 0 }}>
-          笔记工作区
-        </Title>
-        <Text type="secondary">支持拖拽、思维导图、结构化模板</Text>
-        <Tabs defaultActiveKey="note" items={items} />
+/** 右侧 30%：笔记工作区 */
+function NotesWorkspace({ topic, savedConclusion }) {
+  const [outlineData, setOutlineData] = useState({
+    topic: '',
+    timeline: [],
+    causality: [],
+    figures: [],
+    viewpoints: [],
+    evidence: [],
+    conclusion: '',
+  });
+  const [outlineLoading, setOutlineLoading] = useState(false);
+  const { message } = AntdApp.useApp();
+
+  const splitStringToArray = (str) => {
+    return str ? str.split(/[\n;；]/).map(item => item.trim()).filter(item => item) : [];
+  };
+
+  useEffect(() => {
+    if (!topic) return;
+
+    const fetchOutline = async () => {
+      setOutlineLoading(true);
+      try {
+        const response = await getStructuredOutline(topic);
+        if (response && response.data) {
+          const processedData = {
+            topic: response.data.topic || '',
+            timeline: splitStringToArray(response.data.timeline),
+            causality: splitStringToArray(response.data.causality),
+            figures: splitStringToArray(response.data.figures),
+            viewpoints: [],
+            evidence: [
+              'Jack Beeching的《中国鸦片战争》',
+              'Harry G. Gelber的《鸦片、士兵与福音派》',
+              'W. Travis Hanes和Frank Sanello的《鸦片战争》'
+            ],
+            conclusion: '',
+          };
+          setOutlineData(processedData);
+          message.success('大纲加载成功！');
+        } else {
+          message.warning('未获取到完整大纲数据。');
+        }
+      } catch (error) {
+        console.error("Failed to fetch structured outline:", error);
+        message.error('加载大纲失败，请检查网络或后端服务。');
+      } finally {
+        setOutlineLoading(false);
+      }
+    };
+
+    fetchOutline();
+  }, [topic, message]);
+
+  useEffect(() => {
+    setOutlineData(prev => ({ ...prev, conclusion: savedConclusion }));
+  }, [savedConclusion]);
+
+  const saveOutlineItem = (key, value) => {
+    setOutlineData(prev => ({ ...prev, [key]: value }));
+    message.success(`${key} 已保存！`);
+  };
+
+  const items = [
+    {
+      key: 'note',
+      label: '自由笔记',
+      children: <FreeNote />,
+    },
+    {
+      key: 'outline',
+      label: '指引大纲',
+      children: (
+        <OutlineTemplate
+          data={outlineData}
+          loading={outlineLoading}
+          onSave={saveOutlineItem}
+        />
+      ),
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      <Title level={5} style={{ marginBottom: 0 }}>
+        笔记工作区
+      </Title>
+      <Text type="secondary">支持拖拽、指引大纲、自由笔记</Text>
+      <Tabs defaultActiveKey="note" items={items} />
+    </Space>
+  );
+}
+
+function FreeNote() {
+  const [val, setVal] = useState('');
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      <TextArea
+        rows={12}
+        placeholder="随手记录要点、证据与疑问……"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+      />
+      <Space>
+        <Button type="primary" onClick={() => message.success('已保存到本地（示例）')}>
+          保存
+        </Button>
+        <Button onClick={() => setVal('')}>清空</Button>
       </Space>
+    </Space>
+  );
+}
+
+function EditableItem({ initialValue, onSave, onDelete }) {
+  const [value, setValue] = useState(initialValue);
+  useEffect(() => setValue(initialValue), [initialValue]);
+
+  const handleSave = () => {
+    onSave(value);
+  };
+
+  const handleChange = (e) => {
+    setValue(e.target.value);
+  };
+
+  return (
+    <Card
+      size="small"
+      style={{ marginBottom: 8, borderLeft: '2px solid #52c41a' }}
+      actions={[
+        <Button type="text" onClick={handleSave} key="save">
+          保存
+        </Button>,
+        <Button type="text" danger icon={<DeleteOutlined />} onClick={onDelete} key="delete" />
+      ]}
+    >
+      <TextArea
+        rows={2}
+        value={value}
+        onChange={handleChange}
+        style={{ width: '100%' }}
+        autoSize
+      />
+    </Card>
+  );
+}
+
+// 解析并格式化“反思结论”到结构化展示
+function FormattedConclusion({ rawConclusion }) {
+  if (!rawConclusion) {
+    return (
+      <Empty
+        description="这里将显示你从模块四生成的反思总结内容。"
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+      />
     );
   }
-  
-function FreeNote() {
-      const [val, setVal] = useState('');
-      return (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <TextArea
-            rows={12}
-            placeholder="随手记录要点、证据与疑问……"
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-          />
-          <Space>
-            <Button type="primary" onClick={() => message.success('已保存到本地（示例）')}>
-              保存
-            </Button>
-            <Button onClick={() => setVal('')}>清空</Button>
+
+  const mainAndOtherThoughts = rawConclusion.split(/\n其他思考：\n/);
+  const mainPointsText = mainAndOtherThoughts[0] || '';
+  const otherThoughtsPart = mainAndOtherThoughts[1] || '';
+
+  const formattedPoints = mainPointsText
+    .split('\n- ')
+    .filter(Boolean)
+    .map((pointText) => {
+      const lines = pointText.trim().split('\n');
+      const title = lines[0].trim().replace('-', '').trim();
+      const subPoints = lines.slice(1).map((line) => line.trim().replace('-', '').trim()).filter(Boolean);
+      return { title, subPoints };
+    });
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      <List
+        size="small"
+        dataSource={formattedPoints}
+        renderItem={(item) => (
+          <List.Item style={{ borderBottom: 'none', padding: '4px 0' }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Text strong style={{ color: '#1890ff' }}>
+                {item.title}
+              </Text>
+              <List
+                size="small"
+                dataSource={item.subPoints}
+                renderItem={(subItem) => (
+                  <List.Item style={{ borderBottom: 'none', padding: '0 0 4px 16px' }}>
+                    <Text style={{ whiteSpace: 'pre-wrap' }}>{subItem}</Text>
+                  </List.Item>
+                )}
+              />
+            </Space>
+          </List.Item>
+        )}
+      />
+      {otherThoughtsPart && (
+        <>
+          <Divider dashed style={{ margin: '8px 0' }} />
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Text strong style={{ color: '#1890ff' }}>
+              其他思考
+            </Text>
+            <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
+              {otherThoughtsPart.trim()}
+            </Paragraph>
           </Space>
-        </Space>
-      );
+        </>
+      )}
+    </Space>
+  );
 }
-    
-function OutlineTemplate() {
-      const [data, setData] = useState({
-        cause: '',
-        evidenceA: '',
-        evidenceB: '',
-        conclusion: '',
-      });
-      const onChange = (k) => (e) => setData({ ...data, [k]: e.target.value });
-    
-      return (
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Text strong>模板：因果—证据—结论</Text>
-          <Input placeholder="直接原因 / 深层原因" value={data.cause} onChange={onChange('cause')} />
-          <Input placeholder="证据（支持 A）" value={data.evidenceA} onChange={onChange('evidenceA')} />
-          <Input placeholder="证据（支持 B）" value={data.evidenceB} onChange={onChange('evidenceB')} />
-          <TextArea rows={4} placeholder="初步结论" value={data.conclusion} onChange={onChange('conclusion')} />
-          <Space>
-            <Button type="primary" onClick={() => message.success('模板已保存（示例）')}>
-              保存
-            </Button>
-            <Button onClick={() => setData({ cause: '', evidenceA: '', evidenceB: '', conclusion: '' })}>
-              重置
+
+function OutlineTemplate({ data, loading, onSave }) {
+  const [localData, setLocalData] = useState(data);
+
+  useEffect(() => {
+    setLocalData(data);
+  }, [data]);
+
+  const handleSaveItem = (key, value) => {
+    onSave(key, value);
+  };
+
+  const renderEditableList = (key, listData) => (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      {listData.map((item, index) => (
+        <EditableItem
+          key={`${key}-${index}`}
+          initialValue={item}
+          onSave={(value) => {
+            const newList = [...listData];
+            newList[index] = value;
+            handleSaveItem(key, newList);
+          }}
+          onDelete={() => {
+            const newList = listData.filter((_, i) => i !== index);
+            handleSaveItem(key, newList);
+          }}
+        />
+      ))}
+      <Button
+        type="dashed"
+        onClick={() => {
+          const newList = [...listData, ''];
+          setLocalData({ ...localData, [key]: newList });
+        }}
+        block
+        icon={<PlusOutlined />}
+      >
+        添加新条目
+      </Button>
+    </Space>
+  );
+
+  const renderCard = (title, content) => {
+    return (
+      <Card
+        size="small"
+        title={<Text strong>{title}</Text>}
+        style={{ marginBottom: 16, borderLeft: '3px solid #1677ff' }}
+      >
+        {content}
+      </Card>
+    );
+  };
+
+  return (
+    <Spin spinning={loading} tip="正在生成大纲..." size="large">
+      <Space direction="vertical" style={{ width: '100%', paddingBottom: 20 }}>
+
+        {renderCard(
+          '主题（研究问题/课题）',
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Input
+              value={localData.topic}
+              onChange={(e) => setLocalData({ ...localData, topic: e.target.value })}
+              style={{ width: '100%' }}
+            />
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => handleSaveItem('topic', localData.topic)}
+              style={{ alignSelf: 'flex-end' }}
+            >
+              保存此项
             </Button>
           </Space>
-        </Space>
-      );
+        )}
+
+        {renderCard(
+          '时间线（关键事件：时间、地点、人物、简述）',
+          renderEditableList('timeline', localData.timeline)
+        )}
+
+        {renderCard(
+          '因果链（直接原因/深层原因/触发事件 → 过程 → 结果/影响）',
+          renderEditableList('causality', localData.causality)
+        )}
+
+        {renderCard(
+          '人物/势力（立场、目标、行动、相互关系）',
+          renderEditableList('figures', localData.figures)
+        )}
+
+        {renderCard(
+          '观点与史学争鸣（不同史家/学派观点 + 论据）',
+          renderEditableList('viewpoints', localData.viewpoints)
+        )}
+
+        {renderCard(
+          '证据节点（摘录/数据/图表，指向原始史料或二手文献）',
+          renderEditableList('evidence', localData.evidence)
+        )}
+
+        {renderCard(
+          '结论/反思（你的判断、局限性、未解问题）',
+          <FormattedConclusion rawConclusion={localData.conclusion} />
+        )}
+      </Space>
+    </Spin>
+  );
 }

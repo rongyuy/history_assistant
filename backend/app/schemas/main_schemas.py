@@ -102,3 +102,13 @@ class Inquiry(InquiryBase):
 class NotesAndConnections(BaseModel):
     notes: List[Note]
     connections: List[Connection]
+
+# 用于结构化大纲的响应模型
+class StructuredOutlineResponse(BaseModel):
+    topic: str
+    timeline: str
+    causality: str
+    figures: str
+    viewpoints: str
+    evidence: str
+    conclusion: str
