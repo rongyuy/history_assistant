@@ -84,7 +84,8 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     if not page.exists():
         return {
             "viewpoints": [],
-            "debates": [f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"]
+            "debates": [f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"],
+            "full_discussion": ""
         }
     
     # 获取讨论页
@@ -106,7 +107,8 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     
     return {
         "viewpoints": viewpoints,
-        "debates": debates
+        "debates": debates,
+        "full_discussion": talk_content
     }
 
 def get_references_with_content(topic_name: str) -> dict:
@@ -149,6 +151,35 @@ def get_wiki_full_content(topic_name: str) -> dict:
         "title": page.title,
         "content": full_content,
         "url": page_url
+    }
+
+def get_discussion_details(topic_name: str, debate_item: str) -> dict:
+    """
+    获取特定讨论要点的详细内容和多方观点分析
+    """
+    # 获取主页面和讨论页
+    page = wiki.page(topic_name)
+    talk_page = wiki.page(f"讨论:{topic_name}")
+    
+    if not page.exists():
+        return {
+            "detailed_viewpoints": [],
+            "discussion_content": f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"
+        }
+    
+    # 准备讨论页内容
+    talk_content = ""
+    if talk_page.exists():
+        talk_content = talk_page.text
+    else:
+        talk_content = f"关于'{topic_name}'的讨论页不存在或为空。"
+    
+    # 使用LLM分析特定讨论要点的详细内容
+    analysis_data = llm_service.analyze_detailed_discussion(topic_name, debate_item, page.text, talk_content)
+    
+    return {
+        "detailed_viewpoints": analysis_data.get("detailed_viewpoints", []),
+        "discussion_content": analysis_data.get("discussion_content", "")
     }
 
 # --- 新增函数 ---

@@ -30,7 +30,7 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 // 导入我们创建的API函数
-import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline, getDiscussionDetails } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -157,6 +157,7 @@ function CoreExplorer({ topic, onSaveConclusion }) {
               { side: 'B（观点二）', text: '观点二描述' },
             ],
             debates: ['讨论要点1', '讨论要点2'],
+            full_discussion: '暂无讨论页内容',
           },
           sources: sourcesRes.data,
         });
@@ -211,7 +212,7 @@ function CoreExplorer({ topic, onSaveConclusion }) {
           {
             key: "views",
             label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="A/B 立场与讨论页观点" />,
-            children: <ViewpointAnalysis data={coreData.viewpoints} />,
+            children: <ViewpointAnalysis data={coreData.viewpoints} topic={topic} />,
           },
           {
             key: "sources",
@@ -348,30 +349,170 @@ function WikiSummaryCard({ data, topic }) {
 }
   
 /** 观点辨析：(修改后，接收props) */
-function ViewpointAnalysis({ data }) {
+function ViewpointAnalysis({ data, topic }) {
+    const [selectedDebate, setSelectedDebate] = useState(null);
+    const [detailedViewpoints, setDetailedViewpoints] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [showFullDiscussion, setShowFullDiscussion] = useState(false);
+    const { message } = AntdApp.useApp();
+
+    const handleDebateClick = async (debateItem) => {
+        if (selectedDebate === debateItem) {
+            // 如果点击的是已选中的项目，则取消选择
+            setSelectedDebate(null);
+            setDetailedViewpoints([]);
+            return;
+        }
+
+        setLoading(true);
+        setSelectedDebate(debateItem);
+        
+        try {
+            const response = await getDiscussionDetails(topic, debateItem);
+            setDetailedViewpoints(response.data.detailed_viewpoints || []);
+            message.success('讨论详情加载成功！');
+        } catch (error) {
+            console.error('获取讨论详情失败:', error);
+            message.error('获取讨论详情失败，请稍后重试');
+            setDetailedViewpoints([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleShowFullDiscussion = () => {
+        setShowFullDiscussion(!showFullDiscussion);
+    };
+
     return (
       <Card size="small" bordered style={{ borderStyle: "dashed" }}>
         <Space direction="vertical" style={{ width: "100%" }}>
+          {/* 维基讨论页摘录（要点） */}
           <List
             size="small"
-            header={<Text strong>对立观点（A/B）</Text>}
-            dataSource={data.viewpoints || []}
-            renderItem={(it) => (
-              <List.Item>
-                <Space align="start">
-                  <Tag color="processing">{it.side}</Tag>
-                  <Text>{it.text}</Text>
+            header={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>维基讨论页摘录（要点）</Text>
+                <Button 
+                  type="link" 
+                  size="small" 
+                  loading={loading}
+                  onClick={handleShowFullDiscussion}
+                  style={{ padding: 0 }}
+                >
+                  {showFullDiscussion ? '收起完整讨论页' : '阅读完整讨论页'}
+                </Button>
+              </div>
+            }
+            dataSource={data.debates || []}
+            renderItem={(debateItem, index) => (
+              <List.Item 
+                style={{ 
+                  cursor: 'pointer',
+                  backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
+                  borderRadius: '4px',
+                  padding: '8px',
+                  margin: '2px 0',
+                  border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
+                }}
+                onClick={() => handleDebateClick(debateItem)}
+              >
+                <Space align="start" style={{ width: '100%' }}>
+                  <Tag color={selectedDebate === debateItem ? "processing" : "default"}>
+                    {index + 1}
+                  </Tag>
+                  <Text style={{ flex: 1 }}>{debateItem}</Text>
+                  {selectedDebate === debateItem && loading && <Spin size="small" />}
                 </Space>
               </List.Item>
             )}
           />
-          <Divider dashed style={{ margin: "8px 0" }} />
-          <List
-            size="small"
-            header={<Text strong>维基讨论页摘录（要点）</Text>}
-            dataSource={data.debates || []}
-            renderItem={(t) => <List.Item>{t}</List.Item>}
-          />
+
+          {/* 完整讨论页内容 */}
+          {showFullDiscussion && data.full_discussion && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#f8f9fa', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #e9ecef',
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+                  维基百科讨论页完整内容
+                </Title>
+                <div style={{ 
+                  whiteSpace: 'pre-wrap', 
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  color: '#495057'
+                }}>
+                  {data.full_discussion}
+                </div>
+                <div style={{ marginTop: 8, textAlign: 'right' }}>
+                  <a href={`https://zh.wikipedia.org/wiki/讨论:${topic}`} target="_blank" rel="noopener noreferrer">
+                    在维基百科中查看完整讨论页
+                  </a>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 详细观点分析 - 基于讨论页的多方观点 */}
+          {selectedDebate && detailedViewpoints.length > 0 && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#f0f9ff', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #bae7ff'
+              }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#1890ff' }}>
+                  关于"{selectedDebate}"的详细观点分析（基于维基讨论页）
+                </Title>
+                <List
+                  size="small"
+                  dataSource={detailedViewpoints}
+                  renderItem={(viewpoint) => (
+                    <List.Item style={{ borderBottom: '1px solid #e6f7ff', padding: '8px 0' }}>
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        <Space align="start">
+                          <Tag color="blue">{viewpoint.side}</Tag>
+                          <Text strong>{viewpoint.text}</Text>
+                        </Space>
+                        {viewpoint.evidence && (
+                          <Text type="secondary" style={{ marginLeft: 24, fontSize: '12px' }}>
+                            支撑证据：{viewpoint.evidence}
+                          </Text>
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            </>
+          )}
+
+          {/* 当没有找到相关观点时的提示 */}
+          {selectedDebate && detailedViewpoints.length === 0 && !loading && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#fff7e6', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #ffd591',
+                textAlign: 'center'
+              }}>
+                <Text type="secondary">
+                  在维基百科讨论页中未找到与"{selectedDebate}"直接相关的详细观点分析
+                </Text>
+              </div>
+            </>
+          )}
         </Space>
       </Card>
     );

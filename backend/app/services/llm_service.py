@@ -184,6 +184,97 @@ def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: 
             ],
             "debates": ["AI分析遇到问题，请查看后端日志。"]
         }
+
+def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str, talk_content: str) -> dict:
+    """
+    分析特定讨论要点的详细内容和多方观点
+    严格基于维基百科讨论页内容进行分析
+    """
+    print(f"LLM Service: 分析'{topic}'中'{debate_item}'的详细讨论内容...")
+    
+    # 限制讨论页内容长度，但确保有足够内容进行分析
+    max_length = 15000
+    if len(talk_content) > max_length:
+        talk_content = talk_content[:max_length] + "\n\n[讨论页内容已截断]"
+    
+    # 如果讨论页内容太少，直接返回空结果
+    if len(talk_content.strip()) < 100:
+        return {
+            "detailed_viewpoints": [],
+            "discussion_content": "讨论页内容不足，无法进行详细分析。"
+        }
+    
+    system_prompt = f"""
+你是一名专业的历史学家助手。你的任务是严格基于维基百科讨论页内容，分析关于'{topic}'的特定讨论要点"{debate_item}"的多方观点。
+
+重要要求：
+1. 必须严格基于提供的维基百科讨论页内容进行分析
+2. 不能基于主页面内容进行推断或补充
+3. 如果讨论页中没有与"{debate_item}"直接相关的内容，请返回空结果
+4. 所有观点和证据都必须直接来源于讨论页内容
+
+你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字：
+{{
+  "detailed_viewpoints": [
+    {{ "side": "观点A", "text": "详细观点描述", "evidence": "支撑证据" }},
+    {{ "side": "观点B", "text": "详细观点描述", "evidence": "支撑证据" }}
+  ],
+  "discussion_content": "与该项讨论要点相关的具体讨论内容摘要"
+}}
+
+要求：
+1. detailed_viewpoints应该包含2-4个不同的观点，每个观点要有明确的立场标识、详细描述和支撑证据
+2. 所有观点和证据都必须直接来源于讨论页内容，不能编造或推断
+3. discussion_content应该提取与该项讨论要点最相关的讨论内容
+4. 如果讨论页中没有相关内容，请返回空数组
+5. 所有内容都要客观中立，避免价值判断
+6. 重点关注与"{debate_item}"直接相关的内容
+"""
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"""
+请严格基于以下维基百科讨论页内容，分析关于'{topic}'的特定讨论要点"{debate_item}"：
+
+【讨论页内容】
+{talk_content}
+
+请提取与"{debate_item}"相关的多方观点和详细讨论内容。如果讨论页中没有相关内容，请返回空结果。
+"""}
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=2500,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: 成功为'{topic}'的'{debate_item}'分析了详细讨论内容。")
+        return data
+
+    except APITimeoutError:
+        print(f"LLM分析'{topic}'的'{debate_item}'详细讨论时超时。")
+        return {
+            "detailed_viewpoints": [
+                {"side": "观点A", "text": "AI分析超时，请检查网络连接。", "evidence": ""},
+                {"side": "观点B", "text": "AI分析超时，请检查网络连接。", "evidence": ""}
+            ],
+            "discussion_content": "AI分析超时，请检查网络连接。"
+        }
+    except Exception as e:
+        print(f"LLM分析详细讨论时发生未知错误: {e}")
+        return {
+            "detailed_viewpoints": [
+                {"side": "观点A", "text": "AI分析遇到问题，请查看后端日志。", "evidence": ""},
+                {"side": "观点B", "text": "AI分析遇到问题，请查看后端日志。", "evidence": ""}
+            ],
+            "discussion_content": "AI分析遇到问题，请查看后端日志。"
+        }
     
 def generate_source_comparison(topic: str, source_contents: List[dict]) -> dict:
     """
