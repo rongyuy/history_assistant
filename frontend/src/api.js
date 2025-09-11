@@ -38,6 +38,13 @@ export const getWikiFullContent = (topic) => {
   return apiClient.get(`/full-content/${topic}`);
 };
 
+// 新增: 封装获取讨论页详细内容的API
+export const getDiscussionDetails = (topic, debateItem) => {
+    return apiClient.get(`/discussion-details/${topic}`, {
+        params: { debate_item: debateItem }
+    });
+};
+
 // --- 新增API ---
 // 封装获取结构化大纲的API
 export const getStructuredOutline = (topic) => {

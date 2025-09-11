@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Layout,
   Typography,
@@ -14,23 +14,20 @@ import {
   Tabs,
   Empty,
   FloatButton,
-  //Tooltip,
   Checkbox,
-  App as AntdApp, // antd 的应用级组件, 用于全局 message, Modal 等
+  App as AntdApp, 
   message,
-  Spin, // 引入加载动画
-  //Modal, // 引入模态框
+  Spin, 
+  Menu
 } from 'antd';
 import {
   BookOutlined,
   BulbOutlined,
   MessageOutlined,
-  //LinkOutlined,
   PlusOutlined,
   DeleteOutlined,
 } from '@ant-design/icons';
-// 导入我们创建的API函数
-import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline, getDiscussionDetails } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -38,19 +35,17 @@ const { TextArea } = Input;
 
 /**
  * 页面：InquiryPage
- * (整体结构保持不变)
  */
 export default function InquiryPage() {
   const [topic, setTopic] = useState('鸦片战争');
   const [inputValue, setInputValue] = useState('鸦片战争');
-  const [savedConclusion, setSavedConclusion] = useState(''); // 新增状态，用于保存结论文本
+  const [savedConclusion, setSavedConclusion] = useState(''); 
 
   const handleSearch = () => {
     setTopic(inputValue);
   };
 
   return (
-    // 使用 AntdApp 包裹，以便在任何地方调用 message, Modal 等
     <AntdApp>
       <Layout style={{ height: '100vh', background: '#fff', overflow: 'hidden' }}>
         <Header
@@ -87,7 +82,7 @@ export default function InquiryPage() {
             style={{
               padding: 24,
               paddingBottom: 120,
-              overflowY: 'auto', // 关键修改点
+              overflowY: 'auto', 
               height:'100%' 
             }}
           >
@@ -101,7 +96,7 @@ export default function InquiryPage() {
               padding: 24,
               borderLeft: '1px dashed #eaeaea',
               overflowY: 'auto', 
-              height: '100%', // 新增：确保Sider高度占满父容器，使其overflow生效
+              height: '100%',
             }}
           >
             <NotesWorkspace topic={topic} savedConclusion={savedConclusion} />
@@ -114,59 +109,93 @@ export default function InquiryPage() {
   );
 }
 
-/** 左侧 70%：核心探究区 (修改后) */
+/** 左侧 70%：核心探究区 */
 function CoreExplorer({ topic, onSaveConclusion }) {
-  // 使用 state 来管理从后端获取的数据
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [coreData, setCoreData] = useState({
     wikiSummary: { summary: '', timeline: [] },
     viewpoints: { viewpoints: [], debates: [] },
     sources: { sources: [] },
+    wikiFullContent: null,
   });
+  const [chatValue, setChatValue] = useState('');
   
-  // 通过 AntdApp.useApp() 这个钩子来获取 antd 的全局API实例
   const { message } = AntdApp.useApp();
+  const [contextMenu, setContextMenu] = useState(null);
+  const [currentModule, setCurrentModule] = useState('模块一：史实认知');
+  const [isChatOpen, setChatOpen] = useState(false);
+  const [aiContext, setAiContext] = useState('');
 
-  // useEffect 在 topic 变化时从后端获取数据
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    const selectedText = window.getSelection().toString().trim();
+
+    if (selectedText) {
+      setContextMenu(
+        contextMenu === null
+          ? {
+              mouseX: e.clientX + 2,
+              mouseY: e.clientY - 6,
+              selectedText: selectedText,
+            }
+          : null,
+      );
+    } else {
+      setContextMenu(null);
+    }
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const handleAskAiAboutSelection = () => {
+    if (contextMenu && contextMenu.selectedText) {
+      setChatValue(`针对“${contextMenu.selectedText}”我想问：`);
+      setChatOpen(true);
+      message.info('请针对选中内容开始提问');
+    }
+    setContextMenu(null);
+  };
+
   useEffect(() => {
     if (!topic) return;
 
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      setContextMenu(null);
       message.loading({ content: `正在加载“${topic}”的探究资料...`, key: 'data' });
 
       try {
-        const [wikiRes, viewpointsRes, sourcesRes] = await Promise.all([
+        const [wikiRes, viewpointsRes, sourcesRes, fullContentRes] = await Promise.all([
           getWikiData(topic),
           getViewpointAnalysis(topic),
           getSourcesComparison(topic),
+          getWikiFullContent(topic),
         ]);
 
-        // 增加一个检查，确保后端真的返回了数据
         if (!wikiRes || !wikiRes.data) {
             throw new Error("后端没有返回有效数据。");
         }
 
-        setCoreData({
+        const newCoreData = {
           wikiSummary: wikiRes.data,
-          viewpoints: viewpointsRes.data || {
-            viewpoints: [
-              { side: 'A（观点一）', text: '观点一描述' },
-              { side: 'B（观点二）', text: '观点二描述' },
-            ],
-            debates: ['讨论要点1', '讨论要点2'],
-          },
+          viewpoints: viewpointsRes.data || { viewpoints: [], debates: [] },
           sources: sourcesRes.data,
-        });
+          wikiFullContent: fullContentRes.data,
+        };
+
+        setCoreData(newCoreData);
+
+        const initialContext = `维基百科正文内容:\n${newCoreData.wikiFullContent.content}`;
+        setAiContext(initialContext);
 
         message.success({ content: '资料加载成功!', key: 'data', duration: 2 });
       } catch (err) {
-        // 打印出从后端获取的详细错误信息
         let errorMessage = '加载数据失败，请检查网络连接和后端服务。';
         if (err.response && err.response.data && err.response.data.detail) {
-            // 如果是FastAPI的验证错误，会在这里显示
             errorMessage = `后端数据验证失败: ${JSON.stringify(err.response.data.detail)}`;
             console.error("后端返回的详细错误:", err.response.data.detail);
         } else {
@@ -184,6 +213,31 @@ function CoreExplorer({ topic, onSaveConclusion }) {
     fetchData();
   }, [topic,message]);
 
+    const handleActivateModule = (moduleName) => {
+    setCurrentModule(moduleName);
+    setChatOpen(true); 
+    message.info(`AI 引导已切换到【${moduleName}】模块`);
+
+    let context = '';
+    switch(moduleName) {
+      case '模块一：史实认知':
+        context = `维基百科正文内容:\n${coreData.wikiFullContent.content}`;
+        break;
+      case '模块二：观点辨析':
+        context = `对立观点:\n${coreData.viewpoints.viewpoints.map(vp => `${vp.side}: ${vp.text}`).join('\n\n')}\n\n讨论页要点:\n${coreData.viewpoints.debates.join('\n')}`;
+        break;
+      case '模块三：史料分析':
+        context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n---\n\n')}`;
+        break;
+      case '模块四：反思总结':
+        context = '用户正在进行反思总结阶段。';
+        break;
+      default:
+        context = '';
+    }
+    setAiContext(context);
+  };
+
   if (loading) {
     return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在加载核心资料..." /></div>;
   }
@@ -193,10 +247,9 @@ function CoreExplorer({ topic, onSaveConclusion }) {
   }
   
   return (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Title level={3} style={{ marginBottom: 0 }}>
-        {topic}
-      </Title>
+    <div onContextMenu={handleContextMenu} onClick={handleCloseContextMenu} style={{ cursor: 'default' }}>
+      <Space direction="vertical" size={16} style={{ width: "100%" }}>
+        <Title level={3} style={{ marginBottom: 0 }}>{topic}</Title>
       
       <Collapse
         bordered={false}
@@ -205,44 +258,81 @@ function CoreExplorer({ topic, onSaveConclusion }) {
         items={[
           {
             key: "facts",
-            label: <ModuleHeader icon={<BookOutlined />} title="模块一：史实认知" hint="维基百科摘要、关键时间线" />,
+            label: <ModuleHeader icon={<BookOutlined />} title="模块一：史实认知" hint="维基百科摘要、关键时间线" onActivate={handleActivateModule} />,
             children: <WikiSummaryCard data={coreData.wikiSummary} topic={topic} />,
           },
           {
             key: "views",
-            label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="A/B 立场与讨论页观点" />,
-            children: <ViewpointAnalysis data={coreData.viewpoints} />,
+            label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="A/B 立场与讨论页观点" onActivate={handleActivateModule} />,
+            children: <ViewpointAnalysis data={coreData.viewpoints} topic={topic} />,
           },
           {
             key: "sources",
-            label: <ModuleHeader icon={<BookOutlined />} title="模块三：史料分析" hint="多史料片段对读" />,
-            children: <SourcesComparisonCard data={coreData.sources} />, // 使用新增的组件
+            label: <ModuleHeader icon={<BookOutlined />} title="模块三：史料分析" hint="多史料片段对读" onActivate={handleActivateModule} />,
+            children: <SourcesComparisonCard data={coreData.sources} />,
           },
           {
             key: "reflection",
-            label: <ModuleHeader icon={<BulbOutlined />} title="模块四：反思总结" hint="引导用户回顾并形成结论" />,
+            label: <ModuleHeader icon={<BulbOutlined />} title="模块四：反思总结" hint="引导用户回顾并形成结论" onActivate={handleActivateModule} />,
             children: <ReflectionSection onSaveReflection={onSaveConclusion} />,
           },
         ]}
       />
+      </Space>
 
-      <AIChatDock topic={topic} />
-    </Space>
+      {contextMenu !== null && (
+        <Menu
+          onClick={handleAskAiAboutSelection}
+          style={{
+            position: 'fixed',
+            top: contextMenu.mouseY,
+            left: contextMenu.mouseX,
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            borderRadius: '8px',
+          }}
+          items={[{ key: 'ask-ai', label: '问问AI这段内容...' }]}
+        />
+      )}
+
+      <AIChatDock
+        topic={topic}
+        currentModule={currentModule}
+        aiContext={aiContext}
+        open={isChatOpen}
+        setOpen={setChatOpen}
+        chatValue={chatValue}
+        setChatValue={setChatValue}
+      />
+    </div>
   );
 }
 
-function ModuleHeader({ icon, title, hint }) {
+function ModuleHeader({ icon, title, hint, onActivate  }) {
+  const handleActivateClick = (e) => {
+    e.stopPropagation();
+    onActivate(title);
+  }
   return (
-    <Space>
-      {icon}
-      <Text strong>{title}</Text>
-      <Tag color="default">{hint}</Tag>
-    </Space>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+      <Space>
+        {icon}
+        <Text strong>{title}</Text>
+        <Tag color="default">{hint}</Tag>
+      </Space>
+      <Button 
+        type="text" 
+        size="small" 
+        icon={<MessageOutlined />} 
+        onClick={handleActivateClick}
+      >
+        AI引导
+      </Button>
+    </div>
   );
 }
 
-/** 史实认知：维基摘要/时间线 (修改后) */
-function WikiSummaryCard({ data, topic }) {
+/** 史实认知：维基摘要/时间线 */
+function WikiSummaryCard({ data, topic, initialFullContent }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [fullContent, setFullContent] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -250,7 +340,6 @@ function WikiSummaryCard({ data, topic }) {
 
     const handleReadOriginal = async () => {
         if (fullContent) {
-            // 如果已经加载过，直接切换展开状态
             setIsExpanded(!isExpanded);
             return;
         }
@@ -269,14 +358,18 @@ function WikiSummaryCard({ data, topic }) {
         }
     };
 
+    useEffect(() => {
+      setFullContent(initialFullContent);
+    }, [initialFullContent]);
+
     return (
         <Card 
             size="small" 
             bordered 
             style={{ 
                 borderStyle: "dashed",
-                height: isExpanded ? 'auto' : 'auto', // 展开时高度自适应
-                minHeight: isExpanded ? '600px' : 'auto' // 展开时最小高度增加一倍
+                height: isExpanded ? 'auto' : 'auto', 
+                minHeight: isExpanded ? '600px' : 'auto' 
             }}
         >
             <Space direction="vertical" style={{ width: "100%" }}>
@@ -347,37 +440,176 @@ function WikiSummaryCard({ data, topic }) {
     );
 }
   
-/** 观点辨析：(修改后，接收props) */
-function ViewpointAnalysis({ data }) {
+/** 观点辨析 */
+function ViewpointAnalysis({ data, topic }) {
+    const [selectedDebate, setSelectedDebate] = useState(null);
+    const [detailedViewpoints, setDetailedViewpoints] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [showFullDiscussion, setShowFullDiscussion] = useState(false);
+    const { message } = AntdApp.useApp();
+
+    const handleDebateClick = async (debateItem) => {
+        if (selectedDebate === debateItem) {
+            // 如果点击的是已选中的项目，则取消选择
+            setSelectedDebate(null);
+            setDetailedViewpoints([]);
+            return;
+        }
+
+        setLoading(true);
+        setSelectedDebate(debateItem);
+        
+        try {
+            const response = await getDiscussionDetails(topic, debateItem);
+            setDetailedViewpoints(response.data.detailed_viewpoints || []);
+            message.success('讨论详情加载成功！');
+        } catch (error) {
+            console.error('获取讨论详情失败:', error);
+            message.error('获取讨论详情失败，请稍后重试');
+            setDetailedViewpoints([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleShowFullDiscussion = () => {
+        setShowFullDiscussion(!showFullDiscussion);
+    };
+
     return (
       <Card size="small" bordered style={{ borderStyle: "dashed" }}>
         <Space direction="vertical" style={{ width: "100%" }}>
+          {/* 维基讨论页摘录（要点） */}
           <List
             size="small"
-            header={<Text strong>对立观点（A/B）</Text>}
-            dataSource={data.viewpoints || []}
-            renderItem={(it) => (
-              <List.Item>
-                <Space align="start">
-                  <Tag color="processing">{it.side}</Tag>
-                  <Text>{it.text}</Text>
+            header={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>维基讨论页摘录（要点）</Text>
+                <Button 
+                  type="link" 
+                  size="small" 
+                  loading={loading}
+                  onClick={handleShowFullDiscussion}
+                  style={{ padding: 0 }}
+                >
+                  {showFullDiscussion ? '收起完整讨论页' : '阅读完整讨论页'}
+                </Button>
+              </div>
+            }
+            dataSource={data.debates || []}
+            renderItem={(debateItem, index) => (
+              <List.Item 
+                style={{ 
+                  cursor: 'pointer',
+                  backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
+                  borderRadius: '4px',
+                  padding: '8px',
+                  margin: '2px 0',
+                  border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
+                }}
+                onClick={() => handleDebateClick(debateItem)}
+              >
+                <Space align="start" style={{ width: '100%' }}>
+                  <Tag color={selectedDebate === debateItem ? "processing" : "default"}>
+                    {index + 1}
+                  </Tag>
+                  <Text style={{ flex: 1 }}>{debateItem}</Text>
+                  {selectedDebate === debateItem && loading && <Spin size="small" />}
                 </Space>
               </List.Item>
             )}
           />
-          <Divider dashed style={{ margin: "8px 0" }} />
-          <List
-            size="small"
-            header={<Text strong>维基讨论页摘录（要点）</Text>}
-            dataSource={data.debates || []}
-            renderItem={(t) => <List.Item>{t}</List.Item>}
-          />
+          {/* 完整讨论页内容 */}
+          {showFullDiscussion && data.full_discussion && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#f8f9fa', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #e9ecef',
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+                  维基百科讨论页完整内容
+                </Title>
+                <div style={{ 
+                  whiteSpace: 'pre-wrap', 
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  color: '#495057'
+                }}>
+                  {data.full_discussion}
+                </div>
+                <div style={{ marginTop: 8, textAlign: 'right' }}>
+                  <a href={`https://zh.wikipedia.org/wiki/讨论:${topic}`} target="_blank" rel="noopener noreferrer">
+                    在维基百科中查看完整讨论页
+                  </a>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 详细观点分析 - 基于讨论页的多方观点 */}
+          {selectedDebate && detailedViewpoints.length > 0 && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#f0f9ff', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #bae7ff'
+              }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#1890ff' }}>
+                  关于"{selectedDebate}"的详细观点分析（基于维基讨论页）
+                </Title>
+                <List
+                  size="small"
+                  dataSource={detailedViewpoints}
+                  renderItem={(viewpoint) => (
+                    <List.Item style={{ borderBottom: '1px solid #e6f7ff', padding: '8px 0' }}>
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        <Space align="start">
+                          <Tag color="blue">{viewpoint.side}</Tag>
+                          <Text strong>{viewpoint.text}</Text>
+                        </Space>
+                        {viewpoint.evidence && (
+                          <Text type="secondary" style={{ marginLeft: 24, fontSize: '12px' }}>
+                            支撑证据：{viewpoint.evidence}
+                          </Text>
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            </>
+          )}
+
+          {/* 当没有找到相关观点时的提示 */}
+          {selectedDebate && detailedViewpoints.length === 0 && !loading && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#fff7e6', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #ffd591',
+                textAlign: 'center'
+              }}>
+                <Text type="secondary">
+                  在维基百科讨论页中未找到与"{selectedDebate}"直接相关的详细观点分析
+                </Text>
+              </div>
+            </>
+          )}
         </Space>
       </Card>
     );
 }
   
-/** 新增: 史料对比卡片 */
+/** 史料对比卡片 */
 function SourcesComparisonCard({ data }) {
     if (!data || !data.sources || data.sources.length === 0) {
         return (
@@ -531,26 +763,60 @@ function ReflectionSection({ onSaveReflection }) {
   );
 }
 
-/** 底部 AI 引导 (修改后) */
-function AIChatDock({ topic }) {
+/** 底部 AI 引导 */
+function AIChatDock({ topic, currentModule, open, setOpen, chatValue, setChatValue }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH = 420;
     const RIGHT_OFFSET = SIDER_WIDTH + CONTENT_PADDING;
   
-    const [open, setOpen] = useState(false);
-    const [value, setValue] = useState('');
+    const [drawerHeight, setDrawerHeight] = useState(360);
+    const isResizing = useRef(false);
+
     const [msgs, setMsgs] = useState([
       { role: 'ai', text: '你好！在探究过程中有任何想法或疑问，都可以和我交流。' },
     ]);
     const [loading, setLoading] = useState(false);
+    const { message } = AntdApp.useApp();
+    
+    const messagesEndRef = useRef(null);
+
+    useEffect(() => {
+      if (open) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, [msgs, open]);
+
+    const handleMouseMove = useCallback((e) => {
+      if (!isResizing.current) return;
+      const newHeight = window.innerHeight - e.clientY;
+      if (newHeight > 200 && newHeight < window.innerHeight - 100) {
+        setDrawerHeight(newHeight);
+      }
+    }, []);
+
+    const handleMouseUp = useCallback(() => {
+      isResizing.current = false;
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    }, [handleMouseMove]);
+
+    const handleMouseDown = useCallback((e) => {
+        isResizing.current = true;
+        document.body.style.cursor = 'ns-resize'; 
+        document.body.style.userSelect = 'none'; 
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    }, [handleMouseMove, handleMouseUp]);
   
     const send = async () => {
-      if (!value.trim() || loading) return;
+      if (!chatValue.trim() || loading) return;
   
-      const userMessage = { role: 'user', text: value };
+      const userMessage = { role: 'user', text: chatValue };
       const newMsgs = [...msgs, userMessage];
       setMsgs(newMsgs);
-      setValue('');
+      setChatValue('');
       setLoading(true);
   
       const chatRequest = {
@@ -559,7 +825,7 @@ function AIChatDock({ topic }) {
           content: m.text
         })),
         topic: topic,
-        current_module: "史料分析",
+        current_module: currentModule,
         context_text: "此处可以将来传入用户正在阅读的史料文本"
       };
   
@@ -579,44 +845,78 @@ function AIChatDock({ topic }) {
   
     return (
       <>
-        <div onClick={() => setOpen(true)} style={{ position: "fixed", right: RIGHT_OFFSET, bottom: 96, zIndex: 1100, background: "#1677ff", color: "#fff", padding: "8px 12px", borderRadius: 14, cursor: "pointer", boxShadow: "0 6px 16px rgba(0,0,0,.15)", display: "flex", alignItems: "center", gap: 8, userSelect: "none",}} >
-          <MessageOutlined />
-          <span>AI 引导</span>
-        </div>
   
         <Drawer
           placement="bottom"
-          height={360}
+          height={drawerHeight}
           open={open}
           onClose={() => setOpen(false)}
           mask={false}
           zIndex={1300}
           title={<Space><BulbOutlined /> <span>AI 引导（苏格拉底式）</span></Space>}
           rootStyle={{ left: CONTENT_PADDING, right: RIGHT_OFFSET, }}
-          styles={{ body: { paddingTop: 8, paddingBottom: 8 } }}
+          styles={{ body: { paddingTop: 8, paddingBottom: 8, display: 'flex', flexDirection: 'column' } }}
+          headerStyle={{ cursor: 'default' }} 
         >
+          <div 
+            onMouseDown={handleMouseDown}
+            style={{ 
+              position: 'absolute', 
+              top: 0, 
+              left: 0, 
+              width: '100%', 
+              height: '8px', 
+              cursor: 'ns-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <div style={{width: '40px', height: '4px', backgroundColor: '#ccc', borderRadius: '2px'}} />
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column-reverse' }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
               <List
                   size="small"
-                  dataSource={msgs} // 直接使用原数组
+                  split={false} 
+                  dataSource={msgs}
                   renderItem={(m, idx) => (
-                      <List.Item key={idx} style={{ borderBottom: 'none' }}>
-                          <Space align="start">
-                              <Tag color={m.role === "ai" ? "processing" : "default"}>
-                                  {m.role === "ai" ? "AI" : "你"}
-                              </Tag>
-                              <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
-                          </Space>
+                      <List.Item key={idx} 
+                      style={{
+                        display: 'flex',
+                        justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
+                        padding: '4px 0',
+                      }}
+                      >
+                        <Space align="start" style={{ maxWidth: '85%' }}>
+                          {m.role === 'ai' && (
+                            <>
+                              <Tag color="processing">AI</Tag>
+                              <div style={{ background: '#f5f5f5', padding: '8px 12px', borderRadius: '10px' }}>
+                                <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                              </div>
+                            </>
+                          )}
+                          {m.role === 'user' && (
+                            <>
+                              <div style={{ background: '#e6f7ff', padding: '8px 12px', borderRadius: '10px' }}>
+                                <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                              </div>
+                              <Tag color="default">你</Tag>
+                            </>
+                          )}
+                        </Space>
                       </List.Item>
                   )}
               />
+              <div ref={messagesEndRef} />
             </div>
             <Space.Compact style={{ width: "100%", marginTop: 8 }}>
               <Input
                 placeholder={loading ? "AI正在思考..." : "输入你的想法/问题，Enter 发送"}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
+                value={chatValue}
+                onChange={(e) => setChatValue(e.target.value)}
                 onPressEnter={send}
                 disabled={loading}
               />

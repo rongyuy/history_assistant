@@ -37,6 +37,7 @@ class Viewpoint(BaseModel):
 class ViewpointAnalysisResponse(BaseModel):
     viewpoints: List[Viewpoint]  # 对立观点列表
     debates: List[str]  # 维基讨论页要点列表
+    full_discussion: str  # 完整讨论页内容
 
 # --- 网页抓取相关 ---
 class ScrapeRequest(BaseModel):

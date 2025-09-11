@@ -14,33 +14,72 @@ client = OpenAI(
 )
 
 def get_socratic_response(request: AIChatRequest) -> str:
+    # 基础人设
     system_prompt = f"""
-你是一名历史学领域的苏格底式导师。你的唯一目标是引导学生进行批判性思考,绝不直接提供答案。
-规则:
-1.  总是以提问的方式回应。
-2.  你的问题应基于学生之前的回答和当前的学习材料。
-3.  引导学生注意证据、识别偏见、比较不同观点。
-4.  保持对话简短、有启发性、开放性,避免是非题。
-5.  永远不要说“我不知道”或“我无法回答”。你的职责是基于现有信息提出引导性问题。
+你是一名专业的历史学领域的苏格拉底式导师。你的唯一目标是引导学生进行批判性思考，绝不直接提供答案或进行总结。
+
+核心规则:
+1.  始终以启发性问题回应，而不是陈述事实或给出答案。
+2.  你的问题必须紧密围绕学生当前的探究阶段和所提供的学习材料。
+3.  保持对话简短、有启发性、开放性, 避免是非题。
+4.  永远不要说“我不知道”或“我无法回答”。你的职责是基于现有信息提出引导性问题。
+
 当前的历史探究主题是: {request.topic}
-学生正处于“{request.current_module}”模块。
 """
 
+    # --- 根据不同模块，动态添加具体任务指令 ---
+
+    if request.current_module == "模块一：史实认知":
+        system_prompt += """
+        你正处于【模块一：史实认知】。
+        你的任务是：引导用户深入阅读维基百科的完整条目，帮助他们梳理基本史实，建立初步的因果和时序概念。
+        - 针对提供的**维基百科全文**，可以提出一些开放性问题来引导用户关注文章的核心内容，例如："通读全文后，你认为这篇文章主要想阐述哪几个核心观点？" 或 "文章的结构是如何安排的？你认为作者为什么这样安排？"
+        - 引导用户关注“延续与变迁”和“因果与结果”，例如："除了众所周知的直接原因，文章还提到了哪些深层次的社会或经济背景？"
+        """
+    elif request.current_module == "模块二：观点辨析":
+        system_prompt += """
+        你正处于【模块二：观点辨析】。
+        你的任务是：引导用户对史料进行“来源探究”和“情境化”分析。
+        - 针对提供的对立观点(A/B方)，可以问："这两方观点的核心分歧在哪里？" 或 "你认为A方的观点可能受到了什么立场或背景的影响？"
+        - 引导用户思考“历史之视角”，例如："为什么不同的作者会对同一事件有截然不同的描述？这告诉我们关于历史叙述的什么特性？"
+        """
+    elif request.current_module == "模块三：史料分析":
+        system_prompt += """
+        你正处于【模块三：史料分析】。
+        你的任务是：引导用户深入“佐证”和“情境化”分析，通过对比阅读来质询史料。
+        - 针对提供的多份史料片段，可以问："对比史料1和史料2，它们在描述同一件事时有何不同之处？" 或 "这两份史料的作者身份（例如官员 vs 商人）会如何影响他们的记述？"
+        """
+    elif request.current_module == "模块四：反思总结":
+        system_prompt += """
+        你正处于【模块四：反思总结】。
+        你的任务是：引导用户进行更高层次的思考，涉及“历史之重要性”和“伦理维度”。
+        - 可以提出与“历史重要性”相关的问题，如："了解这段历史，对于我们理解当今的某个问题有什么帮助吗？"
+        - 可以引导“伦理反思”，如："作为历史学习者，我们应如何平衡‘民族记忆’与‘学术客观性’？"
+        """
+    # 新增：处理用户选中文本的场景
+    elif request.current_module == "针对选中内容提问":
+        system_prompt += """
+        你正处于【针对选中内容提问】的特殊模式。
+        你的任务是：针对用户刚刚选中的一小段文本进行提问，引导他们深入思考这段具体信息的含义、来源或言外之意。
+        - 例如，可以问："你为什么会对这段内容特别感兴趣？" 或 "这段描述中，有没有哪些词语或说法你觉得值得进一步探究？" 或 "这段信息与其他材料是否存在矛盾或可以相互印证的地方？"
+        - 你的提问必须非常聚焦于下面提供的“学习材料”。
+        """
+
     if request.context_text:
-        system_prompt += f"\n学生正在分析以下材料:\n---\n{request.context_text}\n---"
+        system_prompt += f"\n--- 以下是学生正在阅读的学习材料，你的提问需要基于这些内容 ---\n{request.context_text}\n---"
 
     history_dicts = [msg.dict() for msg in request.history]
     messages = [{"role": "system", "content": system_prompt}] + history_dicts
     
+    # ... 后续的 API 调用逻辑保持不变 ...
     if not client.api_key:
         print("警告: DEEPSEEK_API_KEY 环境变量未设置。返回一个模拟回复。")
         return "看起来环境变量没有设置正确，你能检查一下吗？"
-
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
-            max_tokens=150,
+            max_tokens=200,
             temperature=0.7,
         )
         ai_response = response.choices[0].message.content
@@ -183,6 +222,97 @@ def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: 
                 {"side": "B（观点二）", "text": "AI分析遇到问题，请查看后端日志。"}
             ],
             "debates": ["AI分析遇到问题，请查看后端日志。"]
+        }
+    
+def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str, talk_content: str) -> dict:
+    """
+    分析特定讨论要点的详细内容和多方观点
+    严格基于维基百科讨论页内容进行分析
+    """
+    print(f"LLM Service: 分析'{topic}'中'{debate_item}'的详细讨论内容...")
+    
+    # 限制讨论页内容长度，但确保有足够内容进行分析
+    max_length = 15000
+    if len(talk_content) > max_length:
+        talk_content = talk_content[:max_length] + "\n\n[讨论页内容已截断]"
+    
+    # 如果讨论页内容太少，直接返回空结果
+    if len(talk_content.strip()) < 100:
+        return {
+            "detailed_viewpoints": [],
+            "discussion_content": "讨论页内容不足，无法进行详细分析。"
+        }
+    
+    system_prompt = f"""
+你是一名专业的历史学家助手。你的任务是严格基于维基百科讨论页内容，分析关于'{topic}'的特定讨论要点"{debate_item}"的多方观点。
+
+重要要求：
+1. 必须严格基于提供的维基百科讨论页内容进行分析
+2. 不能基于主页面内容进行推断或补充
+3. 如果讨论页中没有与"{debate_item}"直接相关的内容，请返回空结果
+4. 所有观点和证据都必须直接来源于讨论页内容
+
+你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字：
+{{
+  "detailed_viewpoints": [
+    {{ "side": "观点A", "text": "详细观点描述", "evidence": "支撑证据" }},
+    {{ "side": "观点B", "text": "详细观点描述", "evidence": "支撑证据" }}
+  ],
+  "discussion_content": "与该项讨论要点相关的具体讨论内容摘要"
+}}
+
+要求：
+1. detailed_viewpoints应该包含2-4个不同的观点，每个观点要有明确的立场标识、详细描述和支撑证据
+2. 所有观点和证据都必须直接来源于讨论页内容，不能编造或推断
+3. discussion_content应该提取与该项讨论要点最相关的讨论内容
+4. 如果讨论页中没有相关内容，请返回空数组
+5. 所有内容都要客观中立，避免价值判断
+6. 重点关注与"{debate_item}"直接相关的内容
+"""
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"""
+请严格基于以下维基百科讨论页内容，分析关于'{topic}'的特定讨论要点"{debate_item}"：
+
+【讨论页内容】
+{talk_content}
+
+请提取与"{debate_item}"相关的多方观点和详细讨论内容。如果讨论页中没有相关内容，请返回空结果。
+"""}
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=2500,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: 成功为'{topic}'的'{debate_item}'分析了详细讨论内容。")
+        return data
+
+    except APITimeoutError:
+        print(f"LLM分析'{topic}'的'{debate_item}'详细讨论时超时。")
+        return {
+            "detailed_viewpoints": [
+                {"side": "观点A", "text": "AI分析超时，请检查网络连接。", "evidence": ""},
+                {"side": "观点B", "text": "AI分析超时，请检查网络连接。", "evidence": ""}
+            ],
+            "discussion_content": "AI分析超时，请检查网络连接。"
+        }
+    except Exception as e:
+        print(f"LLM分析详细讨论时发生未知错误: {e}")
+        return {
+            "detailed_viewpoints": [
+                {"side": "观点A", "text": "AI分析遇到问题，请查看后端日志。", "evidence": ""},
+                {"side": "观点B", "text": "AI分析遇到问题，请查看后端日志。", "evidence": ""}
+            ],
+            "discussion_content": "AI分析遇到问题，请查看后端日志。"
         }
     
 def generate_source_comparison(topic: str, source_contents: List[dict]) -> dict:

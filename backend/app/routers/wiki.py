@@ -39,6 +39,14 @@ def get_wiki_full_content(topic_name: str):
     data = wikipedia_service.get_wiki_full_content(topic_name)
     return data
 
+@router.get("/discussion-details/{topic_name}")
+def get_discussion_details(topic_name: str, debate_item: str):
+    """
+    获取特定讨论要点的详细内容和多方观点分析
+    """
+    data = wikipedia_service.get_discussion_details(topic_name, debate_item)
+    return data
+
 # --- 新增API端点 ---
 @router.get("/outline/{topic_name}", response_model=StructuredOutlineResponse)
 def get_structured_outline(topic_name: str):
