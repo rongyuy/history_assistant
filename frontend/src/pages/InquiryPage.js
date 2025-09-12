@@ -1,12 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { addEdge, applyNodeChanges, applyEdgeChanges } from 'reactflow';
-import { Dropdown, Menu } from 'antd'; // 导入 Ant Design 的下拉菜单组件
-import { ReactFlowProvider } from 'reactflow';
+import { addEdge, applyNodeChanges, applyEdgeChanges, ReactFlowProvider  } from 'reactflow';
 import {
   Layout,
   Typography,
   Divider,
   Drawer,
+  Dropdown,
   Collapse,
   Card,
   Space,
@@ -18,9 +17,9 @@ import {
   Empty,
   FloatButton,
   Checkbox,
-  App as AntdApp, // antd 的应用级组件, 用于全局 message, Modal 等
+  App as AntdApp, 
   message,
-  Spin, // 引入加载动画
+  Spin, 
 } from 'antd';
 import {
   BookOutlined,
@@ -32,9 +31,8 @@ import {
   OrderedListOutlined,
   ApartmentOutlined,
 } from '@ant-design/icons';
+import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline, getDiscussionDetails } from '../api';
 import ArgumentMap from '../ArgumentMap'
-// 导入我们创建的API函数
-import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline } from '../api';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -42,23 +40,18 @@ const { TextArea } = Input;
 
 /**
  * 页面：InquiryPage
- * (整体结构保持不变)
  */
 export default function InquiryPage() {
   const [topic, setTopic] = useState('鸦片战争');
   const [inputValue, setInputValue] = useState('鸦片战争');
-  const [savedConclusion, setSavedConclusion] = useState(''); // 新增状态，用于保存结论文本
-
-
+  const [savedConclusion, setSavedConclusion] = useState(''); 
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
 
-  // --- 新增：处理图谱内部变化的函数 ---
   const onNodesChange = (changes) => setNodes((nds) => applyNodeChanges(changes, nds));
   const onEdgesChange = (changes) => setEdges((eds) => applyEdgeChanges(changes, eds));
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
 
-  // --- 新增：从外部添加新卡片（节点）的函数 ---
   const addNodeToMap = (text) => {
     const newNode = {
       id: `node-${Date.now()}`, // 使用时间戳确保ID唯一
@@ -90,7 +83,6 @@ export default function InquiryPage() {
   };
 
   return (
-    // 使用 AntdApp 包裹，以便在任何地方调用 message, Modal 等
     <AntdApp>
       <Layout style={{ height: '100vh', background: '#fff', overflow: 'hidden' }}>
         <Header
@@ -165,10 +157,7 @@ export default function InquiryPage() {
   );
 }
 
-/** * 左侧 65%：核心探究区 (融合修改后) 
- * 1. 引入了AI聊天框的状态管理 (isChatOpen, currentModule, etc.)
- * 2. 融合了右键菜单功能
- * 3. 引入了新的 ModuleHeader 和 AIChatDock
+/** * 左侧 65%：核心探究区
  */
 function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
   const [loading, setLoading] = useState(true);
@@ -177,7 +166,7 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     wikiSummary: { summary: '', timeline: [] },
     viewpoints: { viewpoints: [], debates: [] },
     sources: { sources: [] },
-    wikiFullContent: null, // 新增，用于缓存原文
+    wikiFullContent: null,
   });
 
   // --- AI 聊天框相关状态 ---
@@ -188,8 +177,8 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
 
   // --- 右键菜单相关状态 ---
   const [selectedTextForMenu, setSelectedTextForMenu] = useState('');
+  const [contextMenu, setContextMenu] = useState(null);
 
-  // 通过 AntdApp.useApp() 这个钩子来获取 antd 的全局API实例
   const { message } = AntdApp.useApp();
 
   // 当菜单即将显示时，捕获当前选中的文本
@@ -228,13 +217,13 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     }
   ];
 
-  // useEffect 在 topic 变化时从后端获取数据
   useEffect(() => {
     if (!topic) return;
 
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      setContextMenu(null);
       message.loading({ content: `正在加载“${topic}”的探究资料...`, key: 'data' });
 
       try {
@@ -242,7 +231,7 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
           getWikiData(topic),
           getViewpointAnalysis(topic),
           getSourcesComparison(topic),
-          getWikiFullContent(topic), // 预加载原文
+          getWikiFullContent(topic), 
         ]);
 
         if (!wikiRes || !wikiRes.data) {
@@ -308,7 +297,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     }
     setAiContext(context);
   };
-
 
   if (loading) {
     return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在加载核心资料..." /></div>;
@@ -379,16 +367,16 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
  */
 function ModuleHeader({ icon, title, hint, onActivate }) {
     const handleActivateClick = (e) => {
-      // 阻止点击按钮时触发 Collapse 的展开/收起
       e.stopPropagation(); 
       onActivate(title);
     }
-    return (
+
+  return (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
         <Space>
-          {icon}
-          <Text strong>{title}</Text>
-          <Tag color="default">{hint}</Tag>
+            {icon}
+            <Text strong>{title}</Text>
+            <Tag color="default">{hint}</Tag>
         </Space>
         <Button
           type="text"
@@ -398,28 +386,22 @@ function ModuleHeader({ icon, title, hint, onActivate }) {
         >
           AI引导
         </Button>
-      </div>
-    );
+    </div>
+  );
 }
 
-
-/** 史实认知：维基摘要/时间线 (修改后，接收预加载的原文) */
+/** 史实了解 */
 function WikiSummaryCard({ data, initialFullContent }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [fullContent, setFullContent] = useState(null);
-    const { message } = AntdApp.useApp();
-
-    useEffect(() => {
-        // 当 initialFullContent 变化时（例如，主题切换），更新内部状态
-        setFullContent(initialFullContent);
-        // 如果之前是展开状态，可以选择在主题切换后自动收起
-        // setIsExpanded(false); 
-    }, [initialFullContent]);
-
 
     const handleToggleOriginal = () => {
         setIsExpanded(!isExpanded);
     };
+
+    useEffect(() => {
+        setFullContent(initialFullContent);
+    }, [initialFullContent]);
 
     return (
         <Card
@@ -427,8 +409,8 @@ function WikiSummaryCard({ data, initialFullContent }) {
             bordered
             style={{
                 borderStyle: "dashed",
-                height: isExpanded ? 'auto' : 'auto', // 展开时高度自适应
-                minHeight: isExpanded ? '600px' : 'auto' // 展开时最小高度增加一倍
+                height: isExpanded ? 'auto' : 'auto', 
+                minHeight: isExpanded ? '600px' : 'auto' 
             }}
         >
             <Space direction="vertical" style={{ width: "100%" }}>
@@ -437,7 +419,7 @@ function WikiSummaryCard({ data, initialFullContent }) {
                     <Button
                         type="link"
                         size="small"
-                        onClick={handleToggleOriginal}
+                        onClick={handleToggleOriginal} // 逻辑保持不变
                         style={{ marginLeft: 8, flexShrink: 0 }}
                     >
                         {isExpanded ? '收起原文' : '阅读原文'}
@@ -498,37 +480,178 @@ function WikiSummaryCard({ data, initialFullContent }) {
     );
 }
 
-/** 观点辨析：(与原文件相同) */
-function ViewpointAnalysis({ data }) {
+  
+/** 观点辨析 */
+function ViewpointAnalysis({ data, topic }) {
+    const [selectedDebate, setSelectedDebate] = useState(null);
+    const [detailedViewpoints, setDetailedViewpoints] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [showFullDiscussion, setShowFullDiscussion] = useState(false);
+
+    const { message } = AntdApp.useApp();
+
+    const handleDebateClick = async (debateItem) => {
+        if (selectedDebate === debateItem) {
+            // 如果点击的是已选中的项目，则取消选择
+            setSelectedDebate(null);
+            setDetailedViewpoints([]);
+            return;
+        }
+
+        setLoading(true);
+        setSelectedDebate(debateItem);
+        
+        try {
+            const response = await getDiscussionDetails(topic, debateItem);
+            setDetailedViewpoints(response.data.detailed_viewpoints || []);
+            message.success('讨论详情加载成功！');
+        } catch (error) {
+            console.error('获取讨论详情失败:', error);
+            message.error('获取讨论详情失败，请稍后重试');
+            setDetailedViewpoints([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleShowFullDiscussion = () => {
+        setShowFullDiscussion(!showFullDiscussion);
+    };
+
     return (
       <Card size="small" bordered style={{ borderStyle: "dashed" }}>
         <Space direction="vertical" style={{ width: "100%" }}>
+          {/* 维基讨论页摘录（要点） */}
           <List
             size="small"
-            header={<Text strong>对立观点（A/B）</Text>}
-            dataSource={data.viewpoints || []}
-            renderItem={(it) => (
-              <List.Item>
-                <Space align="start">
-                  <Tag color="processing">{it.side}</Tag>
-                  <Text>{it.text}</Text>
+            header={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>维基讨论页摘录（要点）</Text>
+                <Button 
+                  type="link" 
+                  size="small" 
+                  loading={loading}
+                  onClick={handleShowFullDiscussion}
+                  style={{ padding: 0 }}
+                >
+                  {showFullDiscussion ? '收起完整讨论页' : '阅读完整讨论页'}
+                </Button>
+              </div>
+            }
+            dataSource={data.debates || []}
+            renderItem={(debateItem, index) => (
+              <List.Item 
+                style={{ 
+                  cursor: 'pointer',
+                  backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
+                  borderRadius: '4px',
+                  padding: '8px',
+                  margin: '2px 0',
+                  border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
+                }}
+                onClick={() => handleDebateClick(debateItem)}
+              >
+                <Space align="start" style={{ width: '100%' }}>
+                  <Tag color={selectedDebate === debateItem ? "processing" : "default"}>
+                    {index + 1}
+                  </Tag>
+                  <Text style={{ flex: 1 }}>{debateItem}</Text>
+                  {selectedDebate === debateItem && loading && <Spin size="small" />}
                 </Space>
               </List.Item>
             )}
           />
-          <Divider dashed style={{ margin: "8px 0" }} />
-          <List
-            size="small"
-            header={<Text strong>维基讨论页摘录（要点）</Text>}
-            dataSource={data.debates || []}
-            renderItem={(t) => <List.Item>{t}</List.Item>}
-          />
+          {/* 完整讨论页内容 */}
+          {showFullDiscussion && data.full_discussion && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#f8f9fa', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #e9ecef',
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+                  维基百科讨论页完整内容
+                </Title>
+                <div style={{ 
+                  whiteSpace: 'pre-wrap', 
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  color: '#495057'
+                }}>
+                  {data.full_discussion}
+                </div>
+                <div style={{ marginTop: 8, textAlign: 'right' }}>
+                  <a href={`https://zh.wikipedia.org/wiki/讨论:${topic}`} target="_blank" rel="noopener noreferrer">
+                    在维基百科中查看完整讨论页
+                  </a>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 详细观点分析 - 基于讨论页的多方观点 */}
+          {selectedDebate && detailedViewpoints.length > 0 && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#f0f9ff', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #bae7ff'
+              }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#1890ff' }}>
+                  关于"{selectedDebate}"的详细观点分析（基于维基讨论页）
+                </Title>
+                <List
+                  size="small"
+                  dataSource={detailedViewpoints}
+                  renderItem={(viewpoint) => (
+                    <List.Item style={{ borderBottom: '1px solid #e6f7ff', padding: '8px 0' }}>
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        <Space align="start">
+                          <Tag color="blue">{viewpoint.side}</Tag>
+                          <Text strong>{viewpoint.text}</Text>
+                        </Space>
+                        {viewpoint.evidence && (
+                          <Text type="secondary" style={{ marginLeft: 24, fontSize: '12px' }}>
+                            支撑证据：{viewpoint.evidence}
+                          </Text>
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            </>
+          )}
+
+          {/* 当没有找到相关观点时的提示 */}
+          {selectedDebate && detailedViewpoints.length === 0 && !loading && (
+            <>
+              <Divider dashed style={{ margin: "8px 0" }} />
+              <div style={{ 
+                backgroundColor: '#fff7e6', 
+                padding: '12px', 
+                borderRadius: '6px',
+                border: '1px solid #ffd591',
+                textAlign: 'center'
+              }}>
+                <Text type="secondary">
+                  在维基百科讨论页中未找到与"{selectedDebate}"直接相关的详细观点分析
+                </Text>
+              </div>
+            </>
+          )}
         </Space>
       </Card>
     );
 }
   
-/** 史料对比卡片 (与原文件相同) */
+/** 史料对比卡片 */
 function SourcesComparisonCard({ data }) {
     if (!data || !data.sources || data.sources.length === 0) {
         return (
@@ -562,9 +685,9 @@ function SourcesComparisonCard({ data }) {
         </Space>
       </Card>
     );
-  }
+}
   
-/** 反思总结 (与原文件相同) */
+/** 反思总结 */
 function ReflectionSection({ onSaveReflection }) {
   const items = [
     '我能陈述冲突的直接起因与深层原因',
@@ -579,7 +702,6 @@ function ReflectionSection({ onSaveReflection }) {
       return acc;
     }, {})
   );
-
   const [otherThoughts, setOtherThoughts] = useState('');
 
   const handleCheckChange = (index) => (e) => {
@@ -618,7 +740,6 @@ function ReflectionSection({ onSaveReflection }) {
     if (otherThoughts) {
       conclusionText += `\n其他思考：\n${otherThoughts}`;
     }
-
     onSaveReflection(conclusionText);
     message.success('反思内容已保存到笔记大纲！');
   };
@@ -683,9 +804,6 @@ function ReflectionSection({ onSaveReflection }) {
 
 
 /** * 底部 AI 引导 (融合修改版) 
- * 1. 从底部弹出，可拖拽高度
- * 2. 消息可以右键添加到论证图谱
- * 3. 使用更详细的 API 请求
  */
 function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue }) {
     const CONTENT_PADDING = 24;
@@ -735,19 +853,26 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
             setDrawerHeight(newHeight);
         }
     }, []);
+    
+
+    useEffect(() => {
+      if (open) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, [msgs, open]);
 
     const handleMouseUp = useCallback(() => {
-        isResizing.current = false;
-        document.body.style.cursor = 'default';
-        document.body.style.userSelect = '';
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
+      isResizing.current = false;
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
     }, [handleMouseMove]);
 
     const handleMouseDown = useCallback((e) => {
         isResizing.current = true;
-        document.body.style.cursor = 'ns-resize';
-        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'ns-resize'; 
+        document.body.style.userSelect = 'none'; 
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
     }, [handleMouseMove, handleMouseUp]);
@@ -920,52 +1045,12 @@ function NotesWorkspace({
     conclusion: '',
   });
   const [outlineLoading, setOutlineLoading] = useState(false);
+
   const { message } = AntdApp.useApp();
 
   const splitStringToArray = (str) => {
     return str ? str.split(/[\n;；]/).map(item => item.trim()).filter(item => item) : [];
   };
-
-  useEffect(() => {
-    if (!topic) return;
-
-    const fetchOutline = async () => {
-      setOutlineLoading(true);
-      try {
-        const response = await getStructuredOutline(topic);
-        if (response && response.data) {
-          const processedData = {
-            topic: response.data.topic || '',
-            timeline: splitStringToArray(response.data.timeline),
-            causality: splitStringToArray(response.data.causality),
-            figures: splitStringToArray(response.data.figures),
-            viewpoints: [],
-            evidence: [
-              'Jack Beeching的《中国鸦片战争》',
-              'Harry G. Gelber的《鸦片、士兵与福音派》',
-              'W. Travis Hanes和Frank Sanello的《鸦片战争》'
-            ],
-            conclusion: '',
-          };
-          setOutlineData(processedData);
-          message.success('大纲加载成功！');
-        } else {
-          message.warning('未获取到完整大纲数据。');
-        }
-      } catch (error) {
-        console.error("Failed to fetch structured outline:", error);
-        message.error('加载大纲失败，请检查网络或后端服务。');
-      } finally {
-        setOutlineLoading(false);
-      }
-    };
-
-    fetchOutline();
-  }, [topic, message]);
-
-  useEffect(() => {
-    setOutlineData(prev => ({ ...prev, conclusion: savedConclusion }));
-  }, [savedConclusion]);
 
   const saveOutlineItem = (key, value) => {
     setOutlineData(prev => ({ ...prev, [key]: value }));
@@ -1024,6 +1109,47 @@ function NotesWorkspace({
     },
   ];
 
+  useEffect(() => {
+    if (!topic) return;
+
+    const fetchOutline = async () => {
+      setOutlineLoading(true);
+      try {
+        const response = await getStructuredOutline(topic);
+        if (response && response.data) {
+          const processedData = {
+            topic: response.data.topic || '',
+            timeline: splitStringToArray(response.data.timeline),
+            causality: splitStringToArray(response.data.causality),
+            figures: splitStringToArray(response.data.figures),
+            viewpoints: [],
+            evidence: [
+              'Jack Beeching的《中国鸦片战争》',
+              'Harry G. Gelber的《鸦片、士兵与福音派》',
+              'W. Travis Hanes和Frank Sanello的《鸦片战争》'
+            ],
+            conclusion: '',
+          };
+          setOutlineData(processedData);
+          message.success('大纲加载成功！');
+        } else {
+          message.warning('未获取到完整大纲数据。');
+        }
+      } catch (error) {
+        console.error("Failed to fetch structured outline:", error);
+        message.error('加载大纲失败，请检查网络或后端服务。');
+      } finally {
+        setOutlineLoading(false);
+      }
+    };
+
+    fetchOutline();
+  }, [topic, message]);
+
+  useEffect(() => {
+    setOutlineData(prev => ({ ...prev, conclusion: savedConclusion }));
+  }, [savedConclusion]);
+
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       <Title level={5} style={{ marginBottom: 0 }}>
@@ -1034,8 +1160,6 @@ function NotesWorkspace({
     </Space>
   );
 }
-
-// --- 后续的子组件 FreeNote, EditableItem, FormattedConclusion, OutlineTemplate 均与原文件相同，故省略以保持简洁 ---
 
 function FreeNote() {
   const [val, setVal] = useState('');
@@ -1059,7 +1183,6 @@ function FreeNote() {
 
 function EditableItem({ initialValue, onSave, onDelete }) {
   const [value, setValue] = useState(initialValue);
-  useEffect(() => setValue(initialValue), [initialValue]);
 
   const handleSave = () => {
     onSave(value);
@@ -1068,6 +1191,8 @@ function EditableItem({ initialValue, onSave, onDelete }) {
   const handleChange = (e) => {
     setValue(e.target.value);
   };
+
+  useEffect(() => setValue(initialValue), [initialValue]);
 
   return (
     <Card
@@ -1091,7 +1216,6 @@ function EditableItem({ initialValue, onSave, onDelete }) {
   );
 }
 
-// 解析并格式化“反思结论”到结构化展示
 function FormattedConclusion({ rawConclusion }) {
   if (!rawConclusion) {
     return (
@@ -1160,10 +1284,6 @@ function FormattedConclusion({ rawConclusion }) {
 function OutlineTemplate({ data, loading, onSave }) {
   const [localData, setLocalData] = useState(data);
 
-  useEffect(() => {
-    setLocalData(data);
-  }, [data]);
-
   const handleSaveItem = (key, value) => {
     onSave(key, value);
   };
@@ -1210,6 +1330,10 @@ function OutlineTemplate({ data, loading, onSave }) {
       </Card>
     );
   };
+
+  useEffect(() => {
+    setLocalData(data);
+  }, [data]);
 
   return (
     <Spin spinning={loading} tip="正在生成大纲..." size="large">
@@ -1263,6 +1387,7 @@ function OutlineTemplate({ data, loading, onSave }) {
           '结论/反思（你的判断、局限性、未解问题）',
           <FormattedConclusion rawConclusion={localData.conclusion} />
         )}
+        
       </Space>
     </Spin>
   );
