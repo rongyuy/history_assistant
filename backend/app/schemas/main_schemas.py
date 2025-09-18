@@ -58,6 +58,7 @@ class SourceMaterial(BaseModel):
 
 class SourceComparisonResponse(BaseModel):
     sources: List[SourceMaterial]
+    references: List[dict] # <-- 新增这一行
 
 # --- 数据库交互相关 (新增) ---
 

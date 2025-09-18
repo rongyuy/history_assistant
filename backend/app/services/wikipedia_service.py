@@ -118,8 +118,8 @@ def get_references_with_content(topic_name: str) -> dict:
     references_urls = get_external_links_from_wiki_api(topic_name)
     
     scraped_contents = []
-    # 仅抓取前5个外部链接以避免超时
-    for url in references_urls[:5]:
+    # 仅抓取前10个外部链接以避免超时
+    for url in references_urls[:10]:
         print(f"正在抓取参考链接: {url}")
         content_data = fetch_url_content(url)
         # 将原始URL也存入，方便后续使用
@@ -127,6 +127,24 @@ def get_references_with_content(topic_name: str) -> dict:
         scraped_contents.append(content_data)
         
     return scraped_contents
+
+def get_source_comparison(topic_name: str) -> dict:
+    """
+    获取关于特定主题的多源史料对比分析，并包含原始参考文献。
+    这个函数负责整合数据。
+    """
+    # 1. 抓取所有参考文献的原始内容
+    scraped_contents = get_references_with_content(topic_name)
+    
+    # 2. 调用LLM服务，让AI分析原始内容并选出两条核心史料进行对比
+    #    llm_service 返回的数据格式是 {"sources": [...]}
+    comparison_data = llm_service.generate_source_comparison(topic_name, scraped_contents)
+
+    # 3. 【最关键的一步】将AI的分析结果和原始的参考文献列表合并成一个字典后返回
+    return {
+        "sources": comparison_data.get("sources", []), # 从AI结果中获取 sources
+        "references": scraped_contents               # 将我们爬取到的所有参考文献放进去
+    }
 
 def get_wiki_full_content(topic_name: str) -> dict:
     """

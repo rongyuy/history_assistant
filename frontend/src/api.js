@@ -50,3 +50,30 @@ export const getDiscussionDetails = (topic, debateItem) => {
 export const getStructuredOutline = (topic) => {
     return apiClient.get(`/outline/${topic}`);
 };
+
+// **新增一个用于流式聊天的函数**
+export const postChatMessageStream = async (chatRequest, onChunk) => {
+  const response = await fetch('http://localhost:8000/api/v1/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(chatRequest),
+  });
+
+  if (!response.body) {
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    const chunk = decoder.decode(value, { stream: true });
+    onChunk(chunk); // 调用回调函数处理每个数据块
+  }
+};

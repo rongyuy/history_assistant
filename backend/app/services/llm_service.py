@@ -4,7 +4,8 @@ import os
 import json
 from openai import OpenAI, APITimeoutError # 导入APITimeoutError
 from app.schemas.main_schemas import AIChatRequest
-from typing import List, Dict # 确保导入 List 和 Dict
+from typing import List, Dict,AsyncGenerator, Tuple # 确保导入 List 和 Dict
+import functools
 
 # 修改客户端初始化，增加超时设置（例如30秒）
 client = OpenAI(
@@ -13,7 +14,7 @@ client = OpenAI(
     timeout=60.0,  # <-- 增加30秒超时
 )
 
-def get_socratic_response(request: AIChatRequest) -> str:
+async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator[str, None]:
     # 基础人设
     system_prompt = f"""
 你是一名专业的历史学领域的苏格拉底式导师。你的唯一目标是引导学生进行批判性思考，绝不直接提供答案或进行总结。
@@ -71,28 +72,33 @@ def get_socratic_response(request: AIChatRequest) -> str:
     history_dicts = [msg.dict() for msg in request.history]
     messages = [{"role": "system", "content": system_prompt}] + history_dicts
     
-    # ... 后续的 API 调用逻辑保持不变 ...
     if not client.api_key:
-        print("警告: DEEPSEEK_API_KEY 环境变量未设置。返回一个模拟回复。")
-        return "看起来环境变量没有设置正确，你能检查一下吗？"
+        print("警告: DEEPSEEK_API_KEY 环境变量未设置。")
+        yield "看起来环境变量没有设置正确，你能检查一下吗？"
+        return
     try:
-        response = client.chat.completions.create(
+         # **核心修改：添加 stream=True**
+        stream = client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
-            max_tokens=200,
+            max_tokens=1000,
             temperature=0.7,
+            stream=True,
         )
-        ai_response = response.choices[0].message.content
+        # **核心修改：逐块 yield 内容**
+        for chunk in stream:
+            content = chunk.choices[0].delta.content
+            if content:
+                yield content
     except APITimeoutError:
         print("调用 DeepSeek API 超时。")
         ai_response = "AI思考超时了，请检查网络或稍后再试。"
     except Exception as e:
         print(f"调用 DeepSeek API 时出错: {e}")
-        ai_response = "在引导你思考时我遇到了一些困难，我们可以换个角度提问吗？"
-
-    return ai_response
+        yield "在引导你思考时我遇到了一些困难，我们可以换个角度提问吗？"
 
 
+@functools.lru_cache(maxsize=128)
 def generate_summary_and_timeline(topic: str, wiki_content: str) -> dict:
     print(f"LLM Service: Generating detailed summary and timeline for {topic}...")
     
@@ -139,6 +145,7 @@ def generate_summary_and_timeline(topic: str, wiki_content: str) -> dict:
         print(f"LLM生成摘要和时间线时发生未知错误: {e}") 
         return {"summary": "AI在生成摘要时遇到了一个未知问题，请查看后端日志。", "timeline": []}
 
+@functools.lru_cache(maxsize=128)
 def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: str) -> dict:
     """
     分析历史事件的对立观点和维基讨论页内容
@@ -224,6 +231,7 @@ def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: 
             "debates": ["AI分析遇到问题，请查看后端日志。"]
         }
 
+@functools.lru_cache(maxsize=128)
 def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str, talk_content: str) -> dict:
     """
     分析特定讨论要点的详细内容和多方观点
@@ -315,101 +323,30 @@ def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str,
             "discussion_content": "AI分析遇到问题，请查看后端日志。"
         }
     
-def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str, talk_content: str) -> dict:
+def generate_source_comparison(topic: str, source_contents: List[Dict[str, str]]) -> dict:
     """
-    分析特定讨论要点的详细内容和多方观点
-    严格基于维基百科讨论页内容进行分析
+    这是一个外部包装函数，用于处理不可哈希的 list 参数。
+    应用的其他部分应该调用这个函数。
     """
-    print(f"LLM Service: 分析'{topic}'中'{debate_item}'的详细讨论内容...")
+    # 核心步骤：将字典列表转换为一个稳定且可哈希的格式（元组的元组）。
+    # 我们对每个字典的键值对进行排序，以确保 {'a': 1, 'b': 2} 和 {'b': 2, 'a': 1}
+    # 被视为同一个缓存键。
+    hashable_contents = tuple(
+        tuple(sorted(d.items())) for d in source_contents
+    )
     
-    # 限制讨论页内容长度，但确保有足够内容进行分析
-    max_length = 15000
-    if len(talk_content) > max_length:
-        talk_content = talk_content[:max_length] + "\n\n[讨论页内容已截断]"
-    
-    # 如果讨论页内容太少，直接返回空结果
-    if len(talk_content.strip()) < 100:
-        return {
-            "detailed_viewpoints": [],
-            "discussion_content": "讨论页内容不足，无法进行详细分析。"
-        }
-    
-    system_prompt = f"""
-你是一名专业的历史学家助手。你的任务是严格基于维基百科讨论页内容，分析关于'{topic}'的特定讨论要点"{debate_item}"的多方观点。
+    # 使用转换后的可哈希参数来调用真正的缓存函数。
+    return _cached_generate_source_comparison(topic, hashable_contents)
 
-重要要求：
-1. 必须严格基于提供的维基百科讨论页内容进行分析
-2. 不能基于主页面内容进行推断或补充
-3. 如果讨论页中没有与"{debate_item}"直接相关的内容，请返回空结果
-4. 所有观点和证据都必须直接来源于讨论页内容
 
-你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字：
-{{
-  "detailed_viewpoints": [
-    {{ "side": "观点A", "text": "详细观点描述", "evidence": "支撑证据" }},
-    {{ "side": "观点B", "text": "详细观点描述", "evidence": "支撑证据" }}
-  ],
-  "discussion_content": "与该项讨论要点相关的具体讨论内容摘要"
-}}
-
-要求：
-1. detailed_viewpoints应该包含2-4个不同的观点，每个观点要有明确的立场标识、详细描述和支撑证据
-2. 所有观点和证据都必须直接来源于讨论页内容，不能编造或推断
-3. discussion_content应该提取与该项讨论要点最相关的讨论内容
-4. 如果讨论页中没有相关内容，请返回空数组
-5. 所有内容都要客观中立，避免价值判断
-6. 重点关注与"{debate_item}"直接相关的内容
-"""
-    
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"""
-请严格基于以下维基百科讨论页内容，分析关于'{topic}'的特定讨论要点"{debate_item}"：
-
-【讨论页内容】
-{talk_content}
-
-请提取与"{debate_item}"相关的多方观点和详细讨论内容。如果讨论页中没有相关内容，请返回空结果。
-"""}
-    ]
-
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messages,
-            max_tokens=2500,
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
-        
-        content = response.choices[0].message.content
-        data = json.loads(content)
-        print(f"LLM Service: 成功为'{topic}'的'{debate_item}'分析了详细讨论内容。")
-        return data
-
-    except APITimeoutError:
-        print(f"LLM分析'{topic}'的'{debate_item}'详细讨论时超时。")
-        return {
-            "detailed_viewpoints": [
-                {"side": "观点A", "text": "AI分析超时，请检查网络连接。", "evidence": ""},
-                {"side": "观点B", "text": "AI分析超时，请检查网络连接。", "evidence": ""}
-            ],
-            "discussion_content": "AI分析超时，请检查网络连接。"
-        }
-    except Exception as e:
-        print(f"LLM分析详细讨论时发生未知错误: {e}")
-        return {
-            "detailed_viewpoints": [
-                {"side": "观点A", "text": "AI分析遇到问题，请查看后端日志。", "evidence": ""},
-                {"side": "观点B", "text": "AI分析遇到问题，请查看后端日志。", "evidence": ""}
-            ],
-            "discussion_content": "AI分析遇到问题，请查看后端日志。"
-        }
-    
-def generate_source_comparison(topic: str, source_contents: List[dict]) -> dict:
+@functools.lru_cache(maxsize=128)
+def _cached_generate_source_comparison(topic: str, source_contents_tuple: Tuple[Tuple[str, str], ...]) -> dict:
     """
-    新增：根据抓取到的参考文献内容，让LLM进行对比和摘录。
+    这是内部的、被缓存的工作函数。它只接受可哈希的参数。
+    它负责执行真正耗时的大语言模型调用。
     """
+    # 在函数内部，我们将元组转换回列表，以便在提示词中使用。
+    source_contents = [dict(item) for item in source_contents_tuple]
     print(f"LLM Service: Generating source comparison for {topic}...")
 
     # 构造prompt，确保LLM不编造数据
@@ -473,7 +410,38 @@ def generate_source_comparison(topic: str, source_contents: List[dict]) -> dict:
         print(f"LLM生成史料对比时发生未知错误: {e}")
         return {"sources": [{"title": "错误", "url": "", "snippet": "AI生成史料对比时遇到问题，请查看后端日志。", "viewpoint": ""}]}
     
+@functools.lru_cache(maxsize=128)
+def summarize_reference_content(content: str) -> str:
+    """
+    使用LLM为一个参考文献内容生成简短的摘要。
+    """
+    # 限制输入内容的长度
+    max_length = 4000
+    if len(content) > max_length:
+        content = content[:max_length] + "..."
+
+    prompt = f"""
+请为以下文献内容生成一段不超过80字的、客观的摘要，总结其核心观点和背景信息。
+直接输出摘要文本，不要包含任何额外的前缀或标题。
+
+文献内容：
+"{content}"
+"""
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.2,
+        )
+        summary = response.choices[0].message.content.strip()
+        return summary
+    except Exception as e:
+        print(f"为参考文献生成摘要时出错: {e}")
+        # 如果AI摘要失败，返回原文的前100个字符作为备用
+        return content[:100] + "..."
 # --- 新增函数 ---
+@functools.lru_cache(maxsize=128)
 def generate_outline(topic: str, content: str) -> dict:
     """
     使用LLM从维基百科内容中提取结构化大纲

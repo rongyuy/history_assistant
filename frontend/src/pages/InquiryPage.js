@@ -19,6 +19,7 @@ import {
   Checkbox,
   App as AntdApp, 
   message,
+  Modal,
   Spin, 
 } from 'antd';
 import {
@@ -31,7 +32,7 @@ import {
   OrderedListOutlined,
   ApartmentOutlined,
 } from '@ant-design/icons';
-import { getWikiData, getViewpointAnalysis, postChatMessage, getSourcesComparison, getWikiFullContent, getStructuredOutline, getDiscussionDetails } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiFullContent, getStructuredOutline, getDiscussionDetails } from '../api';
 import ArgumentMap from '../ArgumentMap'
 
 const { Header, Sider, Content } = Layout;
@@ -160,7 +161,15 @@ export default function InquiryPage() {
 /** * 左侧 65%：核心探究区
  */
 function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
-  const [loading, setLoading] = useState(true);
+  // 1. 使用对象来管理每个卡片的加载状态
+  const [loadingStates, setLoadingStates] = useState({
+    summary: true,
+    viewpoints: true,
+    sources: true,
+  });
+
+  // 这个 state 用于页面初次加载时的整体 Spin
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [coreData, setCoreData] = useState({
     wikiSummary: { summary: '', timeline: [] },
@@ -221,52 +230,63 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     if (!topic) return;
 
     const fetchData = async () => {
-      setLoading(true);
+      setInitialLoading(true);
       setError(null);
-      setContextMenu(null);
-      message.loading({ content: `正在加载“${topic}”的探究资料...`, key: 'data' });
+      // 开始时，重置所有卡片的加载状态为 true
+      setLoadingStates({
+        summary: true,
+        viewpoints: true,
+        sources: true,
+      });
+      // 重置数据结构，可以保留旧数据直到新数据返回，或者清空
+      setCoreData({
+        wikiSummary: { summary: '', timeline: [] },
+        viewpoints: { viewpoints: [], debates: [] },
+        sources: { sources: [] },
+        wikiFullContent: null,
+      });
 
-      try {
-        const [wikiRes, viewpointsRes, sourcesRes, fullContentRes] = await Promise.all([
-          getWikiData(topic),
-          getViewpointAnalysis(topic),
-          getSourcesComparison(topic),
-          getWikiFullContent(topic), 
-        ]);
+      message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
+      
+      // 初始化完成后，立刻结束全局 loading，显示卡片骨架
+      setInitialLoading(false);
 
-        if (!wikiRes || !wikiRes.data) {
-          throw new Error("后端没有返回有效数据。");
-        }
+      // --- 分别请求各个模块的数据 ---
 
-        const newCoreData = {
-          wikiSummary: wikiRes.data,
-          viewpoints: viewpointsRes.data || { viewpoints: [], debates: [] },
-          sources: sourcesRes.data,
-          wikiFullContent: fullContentRes.data,
-        };
+      // 模块一：史实认知
+      getWikiData(topic).then(res => {
+        setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
+      }).catch(err => {
+        console.error("模块一加载失败:", err);
+        // 可以在这里设置错误状态
+      }).finally(() => {
+        // 无论成功或失败，都结束该模块的加载状态
+        setLoadingStates(prev => ({ ...prev, summary: false }));
+      });
+      
+      // 维基百科全文 (这个没有独立的卡片UI，所以不需要loading状态)
+      getWikiFullContent(topic).then(res => {
+        setCoreData(prev => ({ ...prev, wikiFullContent: res.data }));
+        setAiContext(`维基百科正文内容:\n${res.data.content}`);
+      }).catch(err => console.error("维基全文加载失败:", err));
 
-        setCoreData(newCoreData);
+      // 模块二：观点辨析
+      getViewpointAnalysis(topic).then(res => {
+        setCoreData(prev => ({ ...prev, viewpoints: res.data }));
+      }).catch(err => {
+        console.error("模块二加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, viewpoints: false }));
+      });
 
-        // 设置初始AI上下文
-        const initialContext = `维基百科正文内容:\n${newCoreData.wikiFullContent.content}`;
-        setAiContext(initialContext);
-
-        message.success({ content: '资料加载成功!', key: 'data', duration: 2 });
-      } catch (err) {
-        let errorMessage = '加载数据失败，请检查网络连接和后端服务。';
-        if (err.response && err.response.data && err.response.data.detail) {
-          errorMessage = `后端数据验证失败: ${JSON.stringify(err.response.data.detail)}`;
-          console.error("后端返回的详细错误:", err.response.data.detail);
-        } else {
-          console.error("获取核心数据失败:", err);
-        }
-
-        setError(errorMessage);
-        message.error({ content: '资料加载失败!', key: 'data', duration: 4 });
-
-      } finally {
-        setLoading(false);
-      }
+      // 模块三：史料分析
+      getSourcesComparison(topic).then(res => {
+        setCoreData(prev => ({ ...prev, sources: res.data }));
+      }).catch(err => {
+        console.error("模块三加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, sources: false }));
+      });
     };
 
     fetchData();
@@ -298,8 +318,9 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     setAiContext(context);
   };
 
-  if (loading) {
-    return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在加载核心资料..." /></div>;
+  // 3. 修改渲染逻辑
+  if (initialLoading) {
+    return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在初始化探究模块..." /></div>;
   }
 
   if (error) {
@@ -326,17 +347,41 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
               {
                 key: "facts",
                 label: <ModuleHeader icon={<BookOutlined />} title="模块一：史实认知" hint="维基百科摘要、关键时间线" onActivate={handleActivateModule} />,
-                children: <WikiSummaryCard data={coreData.wikiSummary} initialFullContent={coreData.wikiFullContent} />,
+                children: (
+                  loadingStates.summary ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                      <Spin tip="AI正在生成摘要与时间线..." />
+                    </div>
+                  ) : (
+                    <WikiSummaryCard data={coreData.wikiSummary} initialFullContent={coreData.wikiFullContent} />
+                  )
+                ),
               },
               {
                 key: "views",
                 label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="A/B 立场与讨论页观点" onActivate={handleActivateModule} />,
-                children: <ViewpointAnalysis data={coreData.viewpoints} />,
+                children: (
+                  loadingStates.viewpoints ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                      <Spin tip="AI正在分析不同观点..." />
+                    </div>
+                  ) : (
+                    <ViewpointAnalysis data={coreData.viewpoints} topic={topic} />
+                  )
+                ),
               },
               {
                 key: "sources",
                 label: <ModuleHeader icon={<BookOutlined />} title="模块三：史料分析" hint="多史料片段对读" onActivate={handleActivateModule} />,
-                children: <SourcesComparisonCard data={coreData.sources} />,
+                children: (
+                  loadingStates.sources ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                      <Spin tip="正在抓取和对比多方史料，请耐心等待..." />
+                    </div>
+                  ) : (
+                    <SourcesComparisonCard data={coreData.sources} />
+                  )
+                ),
               },
               {
                 key: "reflection",
@@ -653,23 +698,82 @@ function ViewpointAnalysis({ data, topic }) {
   
 /** 史料对比卡片 */
 function SourcesComparisonCard({ data }) {
-    if (!data || !data.sources || data.sources.length === 0) {
-        return (
-            <Card size="small" bordered style={{ borderStyle: "dashed" }}>
-                <Empty description="未能找到可供对比的史料。" />
-            </Card>
-        );
+  const [showReferences, setShowReferences] = useState(false);
+  const { Paragraph, Title } = Typography;
+
+  // 从后端获取的数据现在应该同时包含 sources 和 references
+  const { sources = [], references = [] } = data || {};
+
+  const isEmpty = !sources || sources.length === 0;
+
+  const getHostname = (url) => {
+    try {
+      return new URL(url).hostname.replace('www.', '');
+    } catch (e) {
+      return '未知来源';
     }
-  
-    return (
-      <Card size="small" bordered style={{ borderStyle: "dashed" }}>
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          {data.sources.map((source, index) => (
+  };
+
+  return (
+    <Card size="small" bordered style={{ borderStyle: "dashed" }}>
+      <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        
+        {/* --- 核心修改：创建一个和模块二风格一致的“标题栏” --- */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text strong>多史料片段对读</Text>
+          <Button
+            type="link" // 样式改为链接
+            size="small"
+            onClick={() => setShowReferences(!showReferences)}
+            disabled={!references || references.length === 0}
+            style={{ padding: 0 }} // 移除内边距，使其更像普通链接
+            icon={<OrderedListOutlined />}
+          >
+            {showReferences ? '收起所有参考文献' : `查看所有参考文献 (${references.length})`}
+          </Button>
+        </div>
+        
+        {/* 2. 参考文献的展示框 (根据 showReferences 状态显示或隐藏) */}
+        {showReferences && (
+          <div style={{
+              backgroundColor: '#f8f9fa',
+              padding: '12px',
+              borderRadius: '6px',
+              border: '1px solid #e9ecef',
+              maxHeight: '300px',
+              overflowY: 'auto'
+          }}>
+            <List
+              itemLayout="vertical"
+              dataSource={references}
+              renderItem={(item, index) => (
+                <List.Item key={index} style={{padding: '8px 0'}}>
+                  <List.Item.Meta
+                    title={<a href={item.url} target="_blank" rel="noopener noreferrer" style={{fontSize: '13px'}}>{item.title || item.url}</a>}
+                    description={`来源: ${getHostname(item.url)}`}
+                  />
+                  <Paragraph style={{fontSize: '12px', margin: 0}}>
+                    {item.content ? `${item.content.substring(0, 150)}...` : (item.message || '内容抓取失败或为空。')}
+                  </Paragraph>
+                </List.Item>
+              )}
+            />
+          </div>
+        )}
+
+        {/* 仅在展开参考文献时显示分割线，UI更整洁 */}
+        {showReferences && <Divider dashed style={{margin: '8px 0'}} />}
+
+        {/* 3. 史料对比布局 */}
+        {isEmpty ? (
+          <Empty description="未能找到可供对比的史料" />
+        ) : (
+          sources.map((source, index) => (
             <div key={index}>
               <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
                 史料{index + 1}：{source.title}
               </Title>
-              <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              <Paragraph type="secondary" style={{ marginBottom: 8, fontSize: '12px' }}>
                 视角：{source.viewpoint}
               </Paragraph>
               <div style={{ padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 6, backgroundColor: '#fafafa' }}>
@@ -677,15 +781,17 @@ function SourcesComparisonCard({ data }) {
                   {source.snippet}
                 </Paragraph>
               </div>
-              <a href={source.url} target="_blank" rel="noopener noreferrer">
+              <a href={source.url} target="_blank" rel="noopener noreferrer" style={{fontSize: '12px', marginTop: '4px', display: 'inline-block'}}>
                 查看原始链接
               </a>
             </div>
-          ))}
-        </Space>
-      </Card>
-    );
+          ))
+        )}
+      </Space>
+    </Card>
+  );
 }
+
   
 /** 反思总结 */
 function ReflectionSection({ onSaveReflection }) {
@@ -881,13 +987,14 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         if (!chatValue.trim() || loading) return;
 
         const userMessage = { role: 'user', text: chatValue };
-        const newMsgs = [...msgs, userMessage];
+        // 先把用户消息和一条空的AI消息放进去
+        const newMsgs = [...msgs, userMessage, { role: 'ai', text: '' }];
         setMsgs(newMsgs);
         setChatValue('');
         setLoading(true);
 
         const chatRequest = {
-            history: newMsgs.slice(-10).map(m => ({
+            history: newMsgs.slice(0, -1).map(m => ({ // 注意这里-1，不把空消息发给后端
                 role: m.role === 'ai' ? 'assistant' : 'user',
                 content: m.text
             })),
@@ -897,13 +1004,27 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         };
 
         try {
-            const response = await postChatMessage(chatRequest);
-            const aiResponse = { role: 'ai', text: response.data.content };
-            setMsgs(currentMsgs => [...currentMsgs, aiResponse]);
+            // **核心修改：调用新的流式API**
+            await postChatMessageStream(chatRequest, (chunk) => {
+                setMsgs(currentMsgs => {
+                    const lastMsgIndex = currentMsgs.length - 1;
+                    const updatedLastMsg = {
+                        ...currentMsgs[lastMsgIndex],
+                        text: currentMsgs[lastMsgIndex].text + chunk,
+                    };
+                    return [...currentMsgs.slice(0, lastMsgIndex), updatedLastMsg];
+                });
+            });
         } catch (error) {
             console.error("AI聊天请求失败:", error);
-            const errorResponse = { role: 'ai', text: '抱歉，AI服务暂时不可用，请稍后再试。' };
-            setMsgs(currentMsgs => [...currentMsgs, errorResponse]);
+            setMsgs(currentMsgs => {
+                const lastMsgIndex = currentMsgs.length - 1;
+                const updatedLastMsg = {
+                    ...currentMsgs[lastMsgIndex],
+                    text: '抱歉，AI服务暂时不可用，请稍后再试。',
+                };
+                return [...currentMsgs.slice(0, lastMsgIndex), updatedLastMsg];
+            });
             message.error("AI响应失败，请检查后端服务。");
         } finally {
             setLoading(false);
