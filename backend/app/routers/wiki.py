@@ -47,17 +47,5 @@ def get_source_comparison(topic_name: str):
     """
     获取指定历史主题的参考文献，并进行多视角对比。
     """
-    # 步骤 1: 抓取所有参考文献的原始内容
-    scraped_contents = wikipedia_service.get_references_with_content(topic_name)
-    
-    # 步骤 2: 调用LLM服务，让AI分析原始内容并选出两条核心史料进行对比
-    comparison_data = llm_service.generate_source_comparison(topic_name, scraped_contents)
-
-    # 步骤 3: 【核心修正】将AI的分析结果和原始的参考文献列表合并成一个字典
-    final_data = {
-        "sources": comparison_data.get("sources", []), # 从AI结果中获取 sources
-        "references": scraped_contents               # 将我们爬取到的所有参考文献放进去
-    }
-    
-    # 步骤 4: 返回这个包含了所有必需字段的完整字典
+    final_data = wikipedia_service.get_source_comparison(topic_name)
     return final_data

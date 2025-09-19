@@ -1,13 +1,15 @@
 # backend/app/services/wikipedia_service.py 
-
+import asyncio
+import httpx
 import wikipediaapi
 from app.services import llm_service 
-from app.services.scraping_service import fetch_url_content # 导入抓取函数
+from app.services.scraping_service import fetch_url_content_async
 import requests
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
-    language='zh'
+    language='zh',
+    timeout=30
 )
 
 # 新增函数：通过调用MediaWiki API获取外部链接
@@ -32,7 +34,7 @@ def get_external_links_from_wiki_api(topic_name: str) -> list:
     }
     
     try:
-        response = S.get(url=URL, params=PARAMS, headers=HEADERS,timeout=15)
+        response = S.get(url=URL, params=PARAMS, headers=HEADERS,timeout=90)
         response.raise_for_status()
         data = response.json()
         
@@ -111,39 +113,52 @@ def get_topic_discussion_data(topic_name: str) -> dict:
         "full_discussion": talk_content
     }
 
-def get_references_with_content(topic_name: str) -> dict:
+# 【核心修改】将 get_references_with_content 完全改造为异步并行模式
+async def get_references_with_content_async(topic_name: str, limit: int = 20) -> list:
     """
-    获取维基百科的参考文献及其内容。
+    异步、并行地获取维基百科的参考文献及其内容。
     """
     references_urls = get_external_links_from_wiki_api(topic_name)
     
-    scraped_contents = []
-    # 仅抓取前10个外部链接以避免超时
-    for url in references_urls[:10]:
-        print(f"正在抓取参考链接: {url}")
-        content_data = fetch_url_content(url)
-        # 将原始URL也存入，方便后续使用
-        content_data['url'] = url
-        scraped_contents.append(content_data)
+    # 使用 httpx.AsyncClient 来管理连接池
+    async with httpx.AsyncClient() as client:
+        # 创建所有需要执行的抓取任务
+        tasks = [
+            fetch_url_content_async(client, url) 
+            for url in references_urls[:limit] # 使用 limit 参数控制数量
+        ]
+        # 使用 asyncio.gather 并行执行所有任务
+        scraped_contents = await asyncio.gather(*tasks, return_exceptions=True)
         
-    return scraped_contents
+    # 过滤掉在 gather 中可能出现的异常
+    return [res for res in scraped_contents if not isinstance(res, Exception)]
 
+# 【核心修改】改造 get_source_comparison 来调用新的异步函数
 def get_source_comparison(topic_name: str) -> dict:
     """
     获取关于特定主题的多源史料对比分析，并包含原始参考文献。
     这个函数负责整合数据。
     """
-    # 1. 抓取所有参考文献的原始内容
-    scraped_contents = get_references_with_content(topic_name)
+    # 1. 【新】使用 asyncio.run() 来执行我们的异步抓取函数
+    #    在这里将文献数量限制从10改为了20
+    all_scraped_contents = asyncio.run(get_references_with_content_async(topic_name, limit=20))
     
-    # 2. 调用LLM服务，让AI分析原始内容并选出两条核心史料进行对比
-    #    llm_service 返回的数据格式是 {"sources": [...]}
-    comparison_data = llm_service.generate_source_comparison(topic_name, scraped_contents)
+    # 步骤 A: 筛选出抓取成功的文献 (这部分逻辑不变)
+    successful_contents = [
+        item for item in all_scraped_contents if item and item.get("success") and item.get("content")
+    ]
 
-    # 3. 【最关键的一步】将AI的分析结果和原始的参考文献列表合并成一个字典后返回
+    # 2. 调用LLM服务 (这部分逻辑不变)
+    comparison_data = llm_service.generate_source_comparison(topic_name, successful_contents)
+
+    # 步骤 B: 为所有抓取成功的内容生成中文摘要 (这部分逻辑不变)
+    for item in successful_contents:
+        item['content'] = llm_service.summarize_reference_content(item['content'])
+
+    # 3. 返回最终结果 (这部分逻辑不变)
     return {
-        "sources": comparison_data.get("sources", []), # 从AI结果中获取 sources
-        "references": scraped_contents               # 将我们爬取到的所有参考文献放进去
+        "sources": comparison_data.get("sources", []),
+        "references": successful_contents
     }
 
 def get_wiki_full_content(topic_name: str) -> dict:

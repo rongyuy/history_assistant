@@ -39,12 +39,14 @@ const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
-/**
- * 页面：InquiryPage
- */
+
 export default function InquiryPage() {
-  const [topic, setTopic] = useState('鸦片战争');
-  const [inputValue, setInputValue] = useState('鸦片战争');
+  // --- 核心修改点 1: topic 初始状态为空 ---
+  const [topic, setTopic] = useState('');
+  // --- 核心修改点 2: inputValue 用于受控输入框 ---
+  const [inputValue, setInputValue] = useState('');
+
+  // ... (其他状态保持不变)
   const [savedConclusion, setSavedConclusion] = useState(''); 
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
@@ -55,12 +57,9 @@ export default function InquiryPage() {
 
   const addNodeToMap = (text) => {
     const newNode = {
-      id: `node-${Date.now()}`, // 使用时间戳确保ID唯一
+      id: `node-${Date.now()}`,
       type: 'textUpdater',
-      position: {
-        x: Math.random() * 400, // 随机位置
-        y: Math.random() * 400,
-      },
+      position: { x: Math.random() * 400, y: Math.random() * 400 },
       data: { label: text },
     };
     setNodes((nds) => [...nds, newNode]);
@@ -69,18 +68,26 @@ export default function InquiryPage() {
   const addBlankNode = () => {
     const newNode = {
       id: `node-${Date.now()}`,
-      type: 'textUpdater', // <-- 同样指定类型
-      position: {
-        x: Math.random() * 400,
-        y: Math.random() * 400,
-      },
+      type: 'textUpdater',
+      position: { x: Math.random() * 400, y: Math.random() * 400 },
       data: { label: '双击编辑' },
     };
     setNodes((nds) => [...nds, newNode]);
   }
 
+  // --- 核心修改点 3: 正确的 handleSearch 函数 ---
   const handleSearch = () => {
-    setTopic(inputValue);
+    if (inputValue && inputValue.trim()) {
+        setTopic(inputValue.trim());
+    } else {
+        message.warning('请输入一个有效的主题。');
+    }
+  };
+
+  // --- 核心修改点 4: 提供一个清空函数 ---
+  const handleClear = () => {
+    setTopic('');
+    setInputValue('');
   };
 
   return (
@@ -110,9 +117,12 @@ export default function InquiryPage() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onPressEnter={handleSearch}
-            placeholder="输入要探究的主题"
+            placeholder="请输入您想探究的历史主题"
+            allowClear
           />
           <Button type="primary" onClick={handleSearch} style={{ marginLeft: 8 }}>开始探究</Button>
+          {/* 添加一个清空按钮，方便重新开始 */}
+          <Button onClick={handleClear} style={{ marginLeft: 8 }}>清空</Button>
         </Header>
 
         <Layout style={{ height: 'calc(100vh - 64px)' }}>
@@ -120,11 +130,16 @@ export default function InquiryPage() {
             style={{
               padding: 24,
               paddingBottom: 120,
-              overflowY: 'auto', // 关键修改点
+              overflowY: 'auto',
               height: '100%'
             }}
           >
-            <CoreExplorer topic={topic} onSaveConclusion={setSavedConclusion} addNodeToMap={addNodeToMap} />
+            {/* 只有在有主题时才渲染核心区域，否则显示欢迎页 */}
+            {topic ? (
+              <CoreExplorer topic={topic} onSaveConclusion={setSavedConclusion} addNodeToMap={addNodeToMap} />
+            ) : (
+              <WelcomePage />
+            )}
           </Content>
 
           <Sider
@@ -134,7 +149,7 @@ export default function InquiryPage() {
               padding: 24,
               borderLeft: '1px dashed #eaeaea',
               overflowY: 'auto',
-              height: '100%', // 新增：确保Sider高度占满父容器，使其overflow生效
+              height: '100%',
             }}
           >
             <NotesWorkspace
@@ -156,6 +171,26 @@ export default function InquiryPage() {
       </Layout>
     </AntdApp>
   );
+}
+
+// 新增：一个简单的欢迎/引导组件
+function WelcomePage() {
+    return (
+        <div style={{ textAlign: 'center', paddingTop: '10vh' }}>
+            <Empty
+                image={<BookOutlined style={{ fontSize: 64, color: '#1677ff' }} />}
+                imageStyle={{ height: 80 }}
+                description={
+                    <>
+                        <Title level={3}>欢迎来到历史探究学习平台</Title>
+                        <Paragraph type="secondary">
+                            请在上方输入您感兴趣的历史主题（例如：“西安事变”），然后点击“开始探究”按钮，开启您的学习之旅。
+                        </Paragraph>
+                    </>
+                }
+            />
+        </div>
+    );
 }
 
 /** * 左侧 65%：核心探究区

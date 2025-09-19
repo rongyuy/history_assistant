@@ -11,7 +11,7 @@ import functools
 client = OpenAI(
     api_key=os.environ.get("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com",
-    timeout=60.0,  # <-- 增加30秒超时
+    timeout=90.0,  # <-- 增加30秒超时
 )
 
 async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator[str, None]:
@@ -338,7 +338,6 @@ def generate_source_comparison(topic: str, source_contents: List[Dict[str, str]]
     # 使用转换后的可哈希参数来调用真正的缓存函数。
     return _cached_generate_source_comparison(topic, hashable_contents)
 
-
 @functools.lru_cache(maxsize=128)
 def _cached_generate_source_comparison(topic: str, source_contents_tuple: Tuple[Tuple[str, str], ...]) -> dict:
     """
@@ -358,11 +357,14 @@ def _cached_generate_source_comparison(topic: str, source_contents_tuple: Tuple[
 2.  对于选定的每一份史料，请提取一个简短、核心的片段（不要超过200字），并注明其出处（title和url）以及它所代表的视角。
 3.  你的输出必须是JSON格式，结构如下，不要添加任何额外文字。
 4.  严禁编造任何信息！所有引用的片段、标题、URL都必须直接来自提供的参考文献内容。如果找不到合适的材料，请返回一个空列表。
+5.  所有输出的JSON值，包括 "snippet" 和 "viewpoint"，都必须是简体中文。
+    **如果这个片段是任何非中文语言（例如日语），你必须先将其完整、准确地翻译成简体中文**，然后再填入 "snippet" 字段。绝不能直接使用原文。
+6.  最终的视角(viewpoint)描述，也必须是简洁明了的简体中文。
 
 {{
   "sources": [
-    {{ "title": "史料标题1", "url": "史料URL1", "snippet": "摘录的片段1", "viewpoint": "所代表的视角1" }},
-    {{ "title": "史料标题2", "url": "史料URL2", "snippet": "摘录的片段2", "viewpoint": "所代表的视角2" }}
+    {{ "title": "史料标题1", "url": "史料URL1", "snippet": "【这里是翻译成简体中文后的片段1】", "viewpoint": "【这里是用简体中文描述的视角1】" }},
+    {{ "title": "史料标题2", "url": "史料URL2", "snippet": "【这里是翻译成简体中文后的片段2】", "viewpoint": "【这里是用简体中文描述的视角2】 }}
   ]
 }}
 """
@@ -394,7 +396,7 @@ def _cached_generate_source_comparison(topic: str, source_contents_tuple: Tuple[
                 {"role": "user", "content": context_text}
             ],
             max_tokens=2000,
-            temperature=0.3,
+            temperature=0.2,
             response_format={"type": "json_object"}
         )
 
@@ -422,7 +424,9 @@ def summarize_reference_content(content: str) -> str:
 
     prompt = f"""
 请为以下文献内容生成一段不超过80字的、客观的摘要，总结其核心观点和背景信息。
+如果内容是外文,请将摘要翻译成中文再输出。
 直接输出摘要文本，不要包含任何额外的前缀或标题。
+再次强调：一定要输出简体中文！！！
 
 文献内容：
 "{content}"
@@ -431,7 +435,7 @@ def summarize_reference_content(content: str) -> str:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
+            max_tokens=500,
             temperature=0.2,
         )
         summary = response.choices[0].message.content.strip()
