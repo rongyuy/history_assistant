@@ -35,7 +35,7 @@ async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator
         你正处于【模块一：史实认知】。
         你的任务是：引导用户深入阅读维基百科的完整条目，帮助他们梳理基本史实，建立初步的因果和时序概念。
         - 针对提供的**维基百科全文**，可以提出一些开放性问题来引导用户关注文章的核心内容，例如："通读全文后，你认为这篇文章主要想阐述哪几个核心观点？" 或 "文章的结构是如何安排的？你认为作者为什么这样安排？"
-        - 引导用户关注“延续与变迁”和“因果与结果”，例如："除了众所周知的直接原因，文章还提到了哪些深层次的社会或经济背景？"
+        - 引导用户关注“延续与变迁”和“因果与结果”，例如："除了众所周知直接原因，文章还提到了哪些深层次的社会或经济背景？"
         """
     elif request.current_module == "模块二：观点辨析":
         system_prompt += """
@@ -144,6 +144,87 @@ def generate_summary_and_timeline(topic: str, wiki_content: str) -> dict:
         # 打印更详细的错误，方便我们看到是不是又有认证问题或其他错误
         print(f"LLM生成摘要和时间线时发生未知错误: {e}") 
         return {"summary": "AI在生成摘要时遇到了一个未知问题，请查看后端日志。", "timeline": []}
+
+# --- 新增函数：分析各阵营作用 ---
+@functools.lru_cache(maxsize=128)
+def analyze_faction_roles(topic: str, wiki_content: str) -> dict:
+    """
+    分析历史事件中不同阵营的正面及负面作用。
+    """
+    print(f"LLM Service: 正在为 {topic} 分析各阵营作用...")
+
+    max_length = 15000
+    if len(wiki_content) > max_length:
+        wiki_content = wiki_content[:max_length] + "\n\n[内容已截断]"
+
+    system_prompt = f"""
+你是一名专业的历史研究员。你的任务是基于提供的关于“{topic}”的维基百科文章，分析其中各个关键阵营所扮演的角色。
+
+请严格遵循以下要求：
+1.  首先，识别出事件中的主要参与阵营（例如，国民党、共产党、东北军、西北军等）。
+2.  对每一个识别出的阵营，分别从“正面作用”和“负面作用”两个角度进行分析和总结。
+3.  你的分析必须完全基于提供的文章内容，不得引入外部知识或进行主观臆断。
+4.  输出必须是严格的JSON格式，结构如下，不要添加任何额外的解释或文字。
+
+{{
+  "faction_roles": [
+    {{
+      "faction_name": "（阵营一的名称）",
+      "roles": [
+        {{ "type": "正面作用", "description": "（对该阵营正面作用的客观总结）" }},
+        {{ "type": "负面作用", "description": "（对该阵营负面作用的客观总结）" }}
+      ]
+    }},
+    {{
+      "faction_name": "（阵营二的名称）",
+      "roles": [
+        {{ "type": "正面作用", "description": "（对该阵营正面作用的客观总结）" }},
+        {{ "type": "负面作用", "description": "（对该阵营负面作用的客观总结）" }}
+      ]
+    }}
+  ]
+}}
+"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"请根据以下关于“{topic}”的维基百科全文，为我分析各方阵营的作用：\n\n{wiki_content}"}
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=2500,
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: 成功为“{topic}”分析了阵营作用。")
+        return data
+
+    except APITimeoutError:
+        print(f"LLM为“{topic}”分析阵营作用时超时。")
+        return {
+            "faction_roles": [
+                {
+                    "faction_name": "AI分析超时",
+                    "roles": [{"type": "错误", "description": "生成内容超时，请检查网络或稍后再试。"}]
+                }
+            ]
+        }
+    except Exception as e:
+        print(f"LLM分析阵营作用时发生未知错误: {e}")
+        return {
+            "faction_roles": [
+                {
+                    "faction_name": "AI分析错误",
+                    "roles": [{"type": "错误", "description": "生成内容时遇到问题，请查看后端日志。"}]
+                }
+            ]
+        }
 
 @functools.lru_cache(maxsize=128)
 def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: str) -> dict:
@@ -444,57 +525,3 @@ def summarize_reference_content(content: str) -> str:
         print(f"为参考文献生成摘要时出错: {e}")
         # 如果AI摘要失败，返回原文的前100个字符作为备用
         return content[:100] + "..."
-# --- 新增函数 ---
-@functools.lru_cache(maxsize=128)
-def generate_outline(topic: str, content: str) -> dict:
-    """
-    使用LLM从维基百科内容中提取结构化大纲
-    """
-    system_prompt = f"""
-你是一个专业的历史研究助理。
-你的任务是根据提供的维基百科页面内容，为历史研究主题“{topic}”生成一个结构化的学习大纲。
-输出格式必须严格遵循以下JSON模式，不包含任何额外文本或Markdown格式：
-{{
-  "topic": "主题（研究问题/课题）",
-  "timeline": "时间线（关键事件：时间、地点、人物、简述）",
-  "causality": "因果链（直接原因/深层原因/触发事件 → 过程 → 结果/影响）",
-  "figures": "人物/势力（立场、目标、行动、相互关系）",
-  "viewpoints": "观点与史学争鸣（不同史家/学派观点 + 论据）",
-  "evidence": "证据节点（摘录/数据/图表，指向原始史料或二手文献）",
-  "conclusion": "结论/反思（你的判断、局限性、未解问题）"
-}}
-
-要求：
-1. 根据提供的内容，对每一个字段进行简要但全面的总结。
-2. 如果内容中缺少某个字段的信息，请留空。
-3. 所有字段的内容都应基于维基百科文章，保持客观中立。
-"""
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"请分析以下关于'{topic}'的维基百科页面内容，并生成一个结构化的大纲：\n\n{content}"}
-    ]
-
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messages,
-            max_tokens=2000,
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
-        content = response.choices[0].message.content
-        data = json.loads(content)
-        print(f"LLM Service: 成功为'{topic}'生成了结构化大纲。")
-        return data
-    except Exception as e:
-        print(f"LLM Service: 调用失败，错误信息: {e}")
-        # 如果出错，返回一个空模板
-        return {
-            "topic": topic,
-            "timeline": "",
-            "causality": "",
-            "figures": "",
-            "viewpoints": "",
-            "evidence": "",
-            "conclusion": ""
-        }

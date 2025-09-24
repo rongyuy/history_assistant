@@ -85,6 +85,7 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     
     if not page.exists():
         return {
+            "faction_roles": [],
             "viewpoints": [],
             "debates": [f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"],
             "full_discussion": ""
@@ -100,14 +101,21 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     else:
         talk_content = f"关于'{topic_name}'的讨论页不存在或为空。"
     
-    # 使用LLM分析对立观点和讨论页内容
+    # --- 核心修改 ---
+    # 1. 调用新增的LLM服务，分析各阵营作用
+    faction_roles_data = llm_service.analyze_faction_roles(topic_name, page.text)
+    
+    # 2. 调用原有的LLM服务，分析对立观点和讨论页内容
     analysis_data = llm_service.analyze_viewpoints_and_debates(topic_name, page.text, talk_content)
     
-    # 提取分析结果
+    # 3. 从两次调用中分别提取所需数据
+    faction_roles = faction_roles_data.get("faction_roles", [])
     viewpoints = analysis_data.get("viewpoints", [])
     debates = analysis_data.get("debates", [])
     
+    # 4. 将所有数据合并到最终的返回结果中
     return {
+        "faction_roles": faction_roles,
         "viewpoints": viewpoints,
         "debates": debates,
         "full_discussion": talk_content
@@ -213,34 +221,4 @@ def get_discussion_details(topic_name: str, debate_item: str) -> dict:
     return {
         "detailed_viewpoints": analysis_data.get("detailed_viewpoints", []),
         "discussion_content": analysis_data.get("discussion_content", "")
-    }
-
-def get_structured_outline(topic_name: str) -> dict:
-    """
-    获取结构化大纲，用于笔记模块
-    """
-    page = wiki.page(topic_name)
-    if not page.exists():
-        return {
-            "topic": topic_name,
-            "timeline": "维基百科中找不到该主题，请手动填写。",
-            "causality": "",
-            "figures": "",
-            "viewpoints": "",
-            "evidence": "",
-            "conclusion": ""
-        }
-    
-    # 调用LLM服务生成结构化大纲
-    outline_data = llm_service.generate_outline(topic_name, page.text)
-    
-    # 组合最终结果，确保所有字段都存在
-    return {
-        "topic": outline_data.get("topic", topic_name),
-        "timeline": outline_data.get("timeline", ""),
-        "causality": outline_data.get("causality", ""),
-        "figures": outline_data.get("figures", ""),
-        "viewpoints": outline_data.get("viewpoints", ""),
-        "evidence": outline_data.get("evidence", ""),
-        "conclusion": outline_data.get("conclusion", "")
     }

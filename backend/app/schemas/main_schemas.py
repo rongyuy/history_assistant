@@ -29,12 +29,21 @@ class WikiTopicResponse(BaseModel):
     # 新增时间线字段
     timeline: List[TimelineEvent]
 
-# --- 观点辨析相关 ---
+# --- 观点辨析相关 (核心修改) ---
+class Role(BaseModel):
+    type: str  # 例如："正面作用" 或 "负面作用"
+    description: str
+
+class FactionRole(BaseModel):
+    faction_name: str
+    roles: List[Role]
+
 class Viewpoint(BaseModel):
     side: str  # 如 "A（英方观点）" 或 "B（清方观点）"
     text: str  # 观点描述
 
 class ViewpointAnalysisResponse(BaseModel):
+    faction_roles: List[FactionRole]  # <-- 新增字段：阵营作用分析
     viewpoints: List[Viewpoint]  # 对立观点列表
     debates: List[str]  # 维基讨论页要点列表
     full_discussion: str  # 完整讨论页内容
@@ -58,7 +67,7 @@ class SourceMaterial(BaseModel):
 
 class SourceComparisonResponse(BaseModel):
     sources: List[SourceMaterial]
-    references: List[dict] # <-- 新增这一行
+    references: List[dict]
 
 # --- 数据库交互相关 (新增) ---
 
@@ -105,12 +114,3 @@ class NotesAndConnections(BaseModel):
     notes: List[Note]
     connections: List[Connection]
 
-# 用于结构化大纲的响应模型
-class StructuredOutlineResponse(BaseModel):
-    topic: str
-    timeline: str
-    causality: str
-    figures: str
-    viewpoints: str
-    evidence: str
-    conclusion: str

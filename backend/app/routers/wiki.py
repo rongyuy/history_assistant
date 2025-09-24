@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.schemas.main_schemas import WikiTopicResponse, ViewpointAnalysisResponse, SourceComparisonResponse,StructuredOutlineResponse
+from app.schemas.main_schemas import WikiTopicResponse, ViewpointAnalysisResponse, SourceComparisonResponse
 from app.services import wikipedia_service, llm_service
 
 router = APIRouter()
@@ -33,14 +33,6 @@ def get_discussion_details(topic_name: str, debate_item: str):
     data = wikipedia_service.get_discussion_details(topic_name, debate_item)
     return data
 
-# --- 新增API端点 ---
-@router.get("/outline/{topic_name}", response_model=StructuredOutlineResponse)
-def get_structured_outline(topic_name: str):
-    """
-    获取指定主题的结构化大纲，用于笔记模块
-    """
-    data = wikipedia_service.get_structured_outline(topic_name)
-    return data
 
 @router.get("/sources/{topic_name}", response_model=SourceComparisonResponse)
 def get_source_comparison(topic_name: str):

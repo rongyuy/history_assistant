@@ -16,7 +16,6 @@ import {
   Tabs,
   Empty,
   FloatButton,
-  Checkbox,
   App as AntdApp, 
   message,
   Modal,
@@ -26,13 +25,13 @@ import {
   BookOutlined,
   BulbOutlined,
   MessageOutlined,
-  PlusOutlined,
   DeleteOutlined,
   EditOutlined,
   OrderedListOutlined,
   ApartmentOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
-import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiFullContent, getStructuredOutline, getDiscussionDetails } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiFullContent, getDiscussionDetails } from '../api';
 import ArgumentMap from '../ArgumentMap'
 
 const { Header, Sider, Content } = Layout;
@@ -41,13 +40,9 @@ const { TextArea } = Input;
 
 
 export default function InquiryPage() {
-  // --- 核心修改点 1: topic 初始状态为空 ---
   const [topic, setTopic] = useState('');
-  // --- 核心修改点 2: inputValue 用于受控输入框 ---
   const [inputValue, setInputValue] = useState('');
 
-  // ... (其他状态保持不变)
-  const [savedConclusion, setSavedConclusion] = useState(''); 
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
 
@@ -75,7 +70,6 @@ export default function InquiryPage() {
     setNodes((nds) => [...nds, newNode]);
   }
 
-  // --- 核心修改点 3: 正确的 handleSearch 函数 ---
   const handleSearch = () => {
     if (inputValue && inputValue.trim()) {
         setTopic(inputValue.trim());
@@ -84,7 +78,6 @@ export default function InquiryPage() {
     }
   };
 
-  // --- 核心修改点 4: 提供一个清空函数 ---
   const handleClear = () => {
     setTopic('');
     setInputValue('');
@@ -121,7 +114,6 @@ export default function InquiryPage() {
             allowClear
           />
           <Button type="primary" onClick={handleSearch} style={{ marginLeft: 8 }}>开始探究</Button>
-          {/* 添加一个清空按钮，方便重新开始 */}
           <Button onClick={handleClear} style={{ marginLeft: 8 }}>清空</Button>
         </Header>
 
@@ -134,9 +126,8 @@ export default function InquiryPage() {
               height: '100%'
             }}
           >
-            {/* 只有在有主题时才渲染核心区域，否则显示欢迎页 */}
             {topic ? (
-              <CoreExplorer topic={topic} onSaveConclusion={setSavedConclusion} addNodeToMap={addNodeToMap} />
+              <CoreExplorer topic={topic} addNodeToMap={addNodeToMap} />
             ) : (
               <WelcomePage />
             )}
@@ -154,7 +145,6 @@ export default function InquiryPage() {
           >
             <NotesWorkspace
               topic={topic}
-              savedConclusion={savedConclusion}
               nodes={nodes}
               edges={edges}
               onNodesChange={onNodesChange}
@@ -173,7 +163,6 @@ export default function InquiryPage() {
   );
 }
 
-// 新增：一个简单的欢迎/引导组件
 function WelcomePage() {
     return (
         <div style={{ textAlign: 'center', paddingTop: '10vh' }}>
@@ -193,39 +182,32 @@ function WelcomePage() {
     );
 }
 
-/** * 左侧 65%：核心探究区
- */
-function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
-  // 1. 使用对象来管理每个卡片的加载状态
+function CoreExplorer({ topic, addNodeToMap }) {
   const [loadingStates, setLoadingStates] = useState({
     summary: true,
     viewpoints: true,
     sources: true,
   });
 
-  // 这个 state 用于页面初次加载时的整体 Spin
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [coreData, setCoreData] = useState({
     wikiSummary: { summary: '', timeline: [] },
-    viewpoints: { viewpoints: [], debates: [] },
+    viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
     sources: { sources: [] },
     wikiFullContent: null,
   });
 
-  // --- AI 聊天框相关状态 ---
   const [isChatOpen, setChatOpen] = useState(false);
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
   const [aiContext, setAiContext] = useState('');
-  const [chatValue, setChatValue] = useState(''); // 用于从右键菜单预设问题
+  const [chatValue, setChatValue] = useState('');
 
-  // --- 右键菜单相关状态 ---
   const [selectedTextForMenu, setSelectedTextForMenu] = useState('');
   const [contextMenu, setContextMenu] = useState(null);
 
   const { message } = AntdApp.useApp();
 
-  // 当菜单即将显示时，捕获当前选中的文本
   const handleMenuVisibleChange = (visible) => {
     if (visible) {
       const currentSelectedText = window.getSelection().toString().trim();
@@ -233,7 +215,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     }
   };
   
-  // --- 融合后的菜单项 ---
   const menuItems = [
     {
       key: 'add-to-map',
@@ -252,7 +233,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
       label: '问问AI这段内容...',
       onClick: () => {
         if (selectedTextForMenu) {
-            // 预设问题并打开AI聊天框
             setChatValue(`针对“${selectedTextForMenu}”我想问：`);
             setChatOpen(true);
             message.info('请针对选中内容继续提问');
@@ -267,45 +247,35 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     const fetchData = async () => {
       setInitialLoading(true);
       setError(null);
-      // 开始时，重置所有卡片的加载状态为 true
       setLoadingStates({
         summary: true,
         viewpoints: true,
         sources: true,
       });
-      // 重置数据结构，可以保留旧数据直到新数据返回，或者清空
       setCoreData({
         wikiSummary: { summary: '', timeline: [] },
-        viewpoints: { viewpoints: [], debates: [] },
+        viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
         sources: { sources: [] },
         wikiFullContent: null,
       });
 
       message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
       
-      // 初始化完成后，立刻结束全局 loading，显示卡片骨架
       setInitialLoading(false);
 
-      // --- 分别请求各个模块的数据 ---
-
-      // 模块一：史实认知
       getWikiData(topic).then(res => {
         setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
       }).catch(err => {
         console.error("模块一加载失败:", err);
-        // 可以在这里设置错误状态
       }).finally(() => {
-        // 无论成功或失败，都结束该模块的加载状态
         setLoadingStates(prev => ({ ...prev, summary: false }));
       });
       
-      // 维基百科全文 (这个没有独立的卡片UI，所以不需要loading状态)
       getWikiFullContent(topic).then(res => {
         setCoreData(prev => ({ ...prev, wikiFullContent: res.data }));
         setAiContext(`维基百科正文内容:\n${res.data.content}`);
       }).catch(err => console.error("维基全文加载失败:", err));
 
-      // 模块二：观点辨析
       getViewpointAnalysis(topic).then(res => {
         setCoreData(prev => ({ ...prev, viewpoints: res.data }));
       }).catch(err => {
@@ -314,7 +284,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
         setLoadingStates(prev => ({ ...prev, viewpoints: false }));
       });
 
-      // 模块三：史料分析
       getSourcesComparison(topic).then(res => {
         setCoreData(prev => ({ ...prev, sources: res.data }));
       }).catch(err => {
@@ -327,7 +296,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     fetchData();
   }, [topic, message]);
 
-  // 点击模块标题旁的"AI引导"按钮时触发
   const handleActivateModule = (moduleName) => {
     setCurrentModule(moduleName);
     setChatOpen(true);
@@ -344,8 +312,8 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
       case '模块三：史料分析':
         context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n---\n\n')}`;
         break;
-      case '模块四：反思总结':
-        context = '用户正在进行反思总结阶段。';
+      case '模块四：因果链分析':
+        context = '用户正在进行因果链分析阶段。';
         break;
       default:
         context = '';
@@ -353,7 +321,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
     setAiContext(context);
   };
 
-  // 3. 修改渲染逻辑
   if (initialLoading) {
     return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在初始化探究模块..." /></div>;
   }
@@ -376,7 +343,7 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
 
           <Collapse
             bordered={false}
-            defaultActiveKey={["facts", "views", "sources", "reflection"]}
+            defaultActiveKey={["facts", "views", "sources", "causality"]}
             style={{ background: "transparent" }}
             items={[
               {
@@ -394,7 +361,7 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
               },
               {
                 key: "views",
-                label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="A/B 立场与讨论页观点" onActivate={handleActivateModule} />,
+                label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="不同阵营作用、A/B立场、讨论页观点" onActivate={handleActivateModule} />,
                 children: (
                   loadingStates.viewpoints ? (
                     <div style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -419,19 +386,18 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
                 ),
               },
               {
-                key: "reflection",
-                label: <ModuleHeader icon={<BulbOutlined />} title="模块四：反思总结" hint="引导用户回顾并形成结论" onActivate={handleActivateModule} />,
-                children: <ReflectionSection onSaveReflection={onSaveConclusion} />,
+                key: "causality",
+                label: <ModuleHeader icon={<BulbOutlined />} title="模块四：因果链分析" hint="梳理事件的来龙去脉" onActivate={handleActivateModule} />,
+                children: <CausalityChainSection />,
               },
             ]}
           />
         </Space>
       </Dropdown>
       
-      {/* 使用新的、从底部弹出的AI聊天组件 */}
       <AIChatDock
         topic={topic}
-        addNodeToMap={addNodeToMap} // 传递交互函数
+        addNodeToMap={addNodeToMap}
         currentModule={currentModule}
         aiContext={aiContext}
         open={isChatOpen}
@@ -443,8 +409,6 @@ function CoreExplorer({ topic, onSaveConclusion, addNodeToMap }) {
   );
 }
 
-/** * 新版模块头，带 "AI 引导" 按钮 
- */
 function ModuleHeader({ icon, title, hint, onActivate }) {
     const handleActivateClick = (e) => {
       e.stopPropagation(); 
@@ -470,28 +434,112 @@ function ModuleHeader({ icon, title, hint, onActivate }) {
   );
 }
 
-/** 史实了解 */
+function EditableTimelineItem({ item, onChange, onDelete }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, width: '100%' }}>
+      <Input
+        value={item.year}
+        onChange={(e) => onChange(item.id, 'year', e.target.value)}
+        placeholder="年份/日期"
+        style={{ width: 120, marginRight: 8 }}
+      />
+      <Input
+        value={item.event}
+        onChange={(e) => onChange(item.id, 'event', e.target.value)}
+        placeholder="关键事件描述"
+        style={{ flex: 1, marginRight: 8 }}
+      />
+      <Button
+        type="text"
+        danger
+        icon={<DeleteOutlined />}
+        onClick={() => onDelete(item.id)}
+      />
+    </div>
+  );
+}
+
 function WikiSummaryCard({ data, initialFullContent }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [fullContent, setFullContent] = useState(null);
-
-    const handleToggleOriginal = () => {
-        setIsExpanded(!isExpanded);
-    };
+    const [timelineItems, setTimelineItems] = useState([]);
 
     useEffect(() => {
         setFullContent(initialFullContent);
     }, [initialFullContent]);
 
+    useEffect(() => {
+        if (data && data.timeline) {
+            const itemsWithId = data.timeline.map((item, index) => ({
+                ...item,
+                id: `timeline-${index}-${Math.random()}`
+            }));
+            setTimelineItems(itemsWithId);
+        }
+    }, [data.timeline]);
+
+    const handleToggleOriginal = () => {
+        setIsExpanded(!isExpanded);
+    };
+
+    const handleTimelineChange = (id, field, value) => {
+        setTimelineItems(currentItems =>
+            currentItems.map(item =>
+                item.id === id ? { ...item, [field]: value } : item
+            )
+        );
+    };
+
+    const handleAddTimelineItem = () => {
+        const newItem = {
+            id: `timeline-new-${Date.now()}`,
+            year: '',
+            event: ''
+        };
+        setTimelineItems(currentItems => [...currentItems, newItem]);
+    };
+
+    const handleDeleteTimelineItem = (id) => {
+        setTimelineItems(currentItems => currentItems.filter(item => item.id !== id));
+    };
+    
+    const handleSaveTimeline = () => {
+        message.success('时间线已保存！');
+    };
+
+    const handleExportTimeline = () => {
+        if (timelineItems.every(item => !item.year.trim() && !item.event.trim())) {
+            message.warning('没有可导出的时间线内容。');
+            return;
+        }
+
+        const content = timelineItems
+            .map(item => `${item.year || '未指定年份'}: ${item.event || '未描述事件'}`)
+            .join('\n');
+
+        const fullContent = `关键时间线\n==================\n\n${content.trim()}`;
+
+        const blob = new Blob([fullContent.trim()], { type: 'text/plain;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '关键时间线.txt';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        message.success('时间线已导出为 TXT 文件！');
+    };
+
+    const handleClearTimeline = () => {
+        setTimelineItems([]);
+        message.info('时间线已清空。');
+    };
+
+
     return (
         <Card
             size="small"
             bordered
-            style={{
-                borderStyle: "dashed",
-                height: isExpanded ? 'auto' : 'auto', 
-                minHeight: isExpanded ? '600px' : 'auto' 
-            }}
+            style={{ borderStyle: "dashed" }}
         >
             <Space direction="vertical" style={{ width: "100%" }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -499,7 +547,7 @@ function WikiSummaryCard({ data, initialFullContent }) {
                     <Button
                         type="link"
                         size="small"
-                        onClick={handleToggleOriginal} // 逻辑保持不变
+                        onClick={handleToggleOriginal}
                         style={{ marginLeft: 8, flexShrink: 0 }}
                     >
                         {isExpanded ? '收起原文' : '阅读原文'}
@@ -510,29 +558,16 @@ function WikiSummaryCard({ data, initialFullContent }) {
                     <>
                         <Divider dashed style={{ margin: "8px 0" }} />
                         <div style={{
-                            backgroundColor: '#f8f9fa',
-                            padding: '12px',
-                            borderRadius: '6px',
-                            border: '1px solid #e9ecef',
-                            maxHeight: '400px',
-                            overflowY: 'auto'
+                            backgroundColor: '#f8f9fa', padding: '12px', borderRadius: '6px',
+                            border: '1px solid #e9ecef', maxHeight: '400px', overflowY: 'auto'
                         }}>
-                            <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
-                                {fullContent.title}
-                            </Title>
-                            <div style={{
-                                whiteSpace: 'pre-wrap',
-                                fontSize: '13px',
-                                lineHeight: '1.6',
-                                color: '#495057'
-                            }}>
+                            <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>{fullContent.title}</Title>
+                            <div style={{ whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: '1.6', color: '#495057' }}>
                                 {fullContent.content}
                             </div>
                             {fullContent.url && (
                                 <div style={{ marginTop: 8, textAlign: 'right' }}>
-                                    <a href={fullContent.url} target="_blank" rel="noopener noreferrer">
-                                        在维基百科中查看完整页面
-                                    </a>
+                                    <a href={fullContent.url} target="_blank" rel="noopener noreferrer">在维基百科中查看完整页面</a>
                                 </div>
                             )}
                         </div>
@@ -541,27 +576,77 @@ function WikiSummaryCard({ data, initialFullContent }) {
 
                 <Divider dashed style={{ margin: "8px 0" }} />
 
-                <List
-                    size="small"
-                    header={<Text type="secondary">关键时间线</Text>}
-                    bordered
-                    dataSource={data.timeline}
-                    renderItem={(it) => (
-                        <List.Item>
+                <Text type="secondary">关键时间线</Text>
+                <div style={{ border: '1px solid #f0f0f0', borderRadius: '8px', padding: '12px' }}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                        {timelineItems.length > 0 ? (
+                            timelineItems.map(item => (
+                                <EditableTimelineItem
+                                    key={item.id}
+                                    item={item}
+                                    onChange={handleTimelineChange}
+                                    onDelete={handleDeleteTimelineItem}
+                                />
+                            ))
+                        ) : (
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无时间线，请点击下方按钮添加" />
+                        )}
+                        <Button
+                            type="dashed"
+                            onClick={handleAddTimelineItem}
+                            block
+                            icon={<PlusOutlined />}
+                            style={{ marginTop: 8 }}
+                        >
+                            添加时间点
+                        </Button>
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-start', paddingTop: '12px', borderTop: '1px solid #f0f0f0', marginTop: '12px' }}>
                             <Space>
-                                <Tag>{it.year}</Tag>
-                                <Text>{it.event}</Text>
+                                <Button type="primary" size="small" onClick={handleSaveTimeline}>保存</Button>
+                                <Button size="small" onClick={handleExportTimeline}>导出</Button>
+                                <Button size="small" onClick={handleClearTimeline}>清空</Button>
                             </Space>
-                        </List.Item>
-                    )}
-                />
+                        </div>
+                    </Space>
+                </div>
             </Space>
         </Card>
     );
 }
 
-  
-/** 观点辨析 */
+// --- 核心修改：调整 FactionRolesDisplay 组件的样式 ---
+function FactionRolesDisplay({ rolesData }) {
+    if (!rolesData || rolesData.length === 0) {
+        return null;
+    }
+
+    return (
+        <div style={{ marginBottom: 16 }}>
+            <Text strong>不同阵营在此事件中的作用分析</Text>
+            <div style={{ marginTop: 8 }}>
+                {rolesData.map(faction => (
+                    <div key={faction.faction_name} style={{ backgroundColor: '#fafafa', padding: '12px', borderRadius: '6px', marginBottom: '12px' }}>
+                        <Text strong>{faction.faction_name}</Text>
+                        <div style={{ marginTop: '8px' }}>
+                            {faction.roles.map(role => (
+                                <div key={role.type} style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                    <Tag color={role.type === '正面作用' ? 'success' : 'error'} style={{ flexShrink: 0, marginRight: 8, marginTop: 4 }}>
+                                        {role.type}
+                                    </Tag>
+                                    <Paragraph type="secondary" style={{ margin: 0, textAlign: 'left' }}>
+                                        {role.description}
+                                    </Paragraph>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <Divider dashed />
+        </div>
+    );
+}
+
 function ViewpointAnalysis({ data, topic }) {
     const [selectedDebate, setSelectedDebate] = useState(null);
     const [detailedViewpoints, setDetailedViewpoints] = useState([]);
@@ -572,7 +657,6 @@ function ViewpointAnalysis({ data, topic }) {
 
     const handleDebateClick = async (debateItem) => {
         if (selectedDebate === debateItem) {
-            // 如果点击的是已选中的项目，则取消选择
             setSelectedDebate(null);
             setDetailedViewpoints([]);
             return;
@@ -601,7 +685,8 @@ function ViewpointAnalysis({ data, topic }) {
     return (
       <Card size="small" bordered style={{ borderStyle: "dashed" }}>
         <Space direction="vertical" style={{ width: "100%" }}>
-          {/* 维基讨论页摘录（要点） */}
+          <FactionRolesDisplay rolesData={data.faction_roles} />
+
           <List
             size="small"
             header={
@@ -641,7 +726,6 @@ function ViewpointAnalysis({ data, topic }) {
               </List.Item>
             )}
           />
-          {/* 完整讨论页内容 */}
           {showFullDiscussion && data.full_discussion && (
             <>
               <Divider dashed style={{ margin: "8px 0" }} />
@@ -673,7 +757,6 @@ function ViewpointAnalysis({ data, topic }) {
             </>
           )}
 
-          {/* 详细观点分析 - 基于讨论页的多方观点 */}
           {selectedDebate && detailedViewpoints.length > 0 && (
             <>
               <Divider dashed style={{ margin: "8px 0" }} />
@@ -709,7 +792,6 @@ function ViewpointAnalysis({ data, topic }) {
             </>
           )}
 
-          {/* 当没有找到相关观点时的提示 */}
           {selectedDebate && detailedViewpoints.length === 0 && !loading && (
             <>
               <Divider dashed style={{ margin: "8px 0" }} />
@@ -730,13 +812,11 @@ function ViewpointAnalysis({ data, topic }) {
       </Card>
     );
 }
-  
-/** 史料对比卡片 */
+
 function SourcesComparisonCard({ data }) {
   const [showReferences, setShowReferences] = useState(false);
   const { Paragraph, Title } = Typography;
 
-  // 从后端获取的数据现在应该同时包含 sources 和 references
   const { sources = [], references = [] } = data || {};
 
   const isEmpty = !sources || sources.length === 0;
@@ -753,22 +833,20 @@ function SourcesComparisonCard({ data }) {
     <Card size="small" bordered style={{ borderStyle: "dashed" }}>
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
         
-        {/* --- 核心修改：创建一个和模块二风格一致的“标题栏” --- */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text strong>多史料片段对读</Text>
           <Button
-            type="link" // 样式改为链接
+            type="link"
             size="small"
             onClick={() => setShowReferences(!showReferences)}
             disabled={!references || references.length === 0}
-            style={{ padding: 0 }} // 移除内边距，使其更像普通链接
+            style={{ padding: 0 }}
             icon={<OrderedListOutlined />}
           >
             {showReferences ? '收起所有参考文献' : `查看所有参考文献 (${references.length})`}
           </Button>
         </div>
         
-        {/* 2. 参考文献的展示框 (根据 showReferences 状态显示或隐藏) */}
         {showReferences && (
           <div style={{
               backgroundColor: '#f8f9fa',
@@ -796,10 +874,8 @@ function SourcesComparisonCard({ data }) {
           </div>
         )}
 
-        {/* 仅在展开参考文献时显示分割线，UI更整洁 */}
         {showReferences && <Divider dashed style={{margin: '8px 0'}} />}
 
-        {/* 3. 史料对比布局 */}
         {isEmpty ? (
           <Empty description="未能找到可供对比的史料" />
         ) : (
@@ -827,112 +903,144 @@ function SourcesComparisonCard({ data }) {
   );
 }
 
-  
-/** 反思总结 */
-function ReflectionSection({ onSaveReflection }) {
-  const items = [
-    '我能陈述冲突的直接起因与深层原因',
-    '我能举出至少两条支持 A/B 观点的证据',
-    '我能形成自己的判断并用证据支撑',
-    '我能思考历史事件的意义、与当下的联系'
-  ];
-
-  const [reflections, setReflections] = useState(() =>
-    items.reduce((acc, _, index) => {
-      acc[index] = { checked: false, content: '' };
-      return acc;
-    }, {})
+function EditableCard({ card, onChange, onDelete }) {
+  return (
+    <Card 
+      size="small" 
+      style={{ width: '100%', marginBottom: 12, borderLeft: '3px solid #1677ff' }} 
+      bodyStyle={{padding: '12px'}}
+    >
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Input
+            variant="borderless"
+            value={card.title}
+            onChange={(e) => onChange(card.id, 'title', e.target.value)}
+            style={{ fontWeight: 'bold', fontSize: '16px', padding: 0 }}
+          />
+          <Button
+            type="text"
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+            onClick={() => onDelete(card.id)}
+          />
+        </div>
+        <TextArea
+          variant="filled"
+          rows={3}
+          value={card.content}
+          onChange={(e) => onChange(card.id, 'content', e.target.value)}
+          placeholder={card.placeholder || '请输入内容...'}
+        />
+      </Space>
+    </Card>
   );
-  const [otherThoughts, setOtherThoughts] = useState('');
+}
 
-  const handleCheckChange = (index) => (e) => {
-    const isChecked = e.target.checked;
-    setReflections(prev => ({
-      ...prev,
-      [index]: {
-        ...prev[index],
-        checked: isChecked,
-        content: isChecked ? prev[index].content : ''
-      }
-    }));
+function CausalityChainSection() {
+  const initialCards = [
+    { id: 1, title: '直接原因', content: '', placeholder: '导致事件发生的直接因素是什么？' },
+    { id: 2, title: '深层原因', content: '', placeholder: '背后有哪些长期存在的、根本性的原因？' },
+    { id: 3, title: '触发事件', content: '', placeholder: '点燃导火索的具体事件是什么？' },
+    { id: 4, title: '过程', content: '', placeholder: '事件发展的关键阶段和转折点有哪些？' },
+    { id: 5, title: '结果/影响', content: '', placeholder: '事件带来了哪些短期和长期的影响？' },
+  ];
+  
+  const [cards, setCards] = useState(initialCards);
+
+  const handleCardChange = (id, field, value) => {
+    setCards(currentCards =>
+      currentCards.map(card =>
+        card.id === id ? { ...card, [field]: value } : card
+      )
+    );
   };
 
-  const handleContentChange = (index) => (e) => {
-    setReflections(prev => ({
-      ...prev,
-      [index]: {
-        ...prev[index],
-        content: e.target.value
-      }
-    }));
+  const handleAddCard = () => {
+    const newCard = {
+      id: Date.now(),
+      title: '自定义事件',
+      content: '',
+      placeholder: '请描述这个自定义事件或原因...'
+    };
+    setCards(currentCards => [...currentCards, newCard]);
+    message.success('已添加新卡片');
   };
 
-  const handleSave = () => {
-    let conclusionText = '';
-    items.forEach((label, index) => {
-      if (reflections[index].checked) {
-        conclusionText += `- ${label}\n`;
-        if (reflections[index].content) {
-          conclusionText += `  - ${reflections[index].content}\n`;
-        }
-      }
-    });
+  const handleDeleteCard = (id) => {
+    setCards(currentCards => currentCards.filter(card => card.id !== id));
+    message.info('卡片已删除');
+  };
 
-    if (otherThoughts) {
-      conclusionText += `\n其他思考：\n${otherThoughts}`;
+  const handleExport = () => {
+    if (cards.every(card => !card.content.trim())) {
+      message.warning('没有可导出的内容。');
+      return;
     }
-    onSaveReflection(conclusionText);
-    message.success('反思内容已保存到笔记大纲！');
+    const content = cards.map(card =>
+      `【${card.title}】\n${card.content || '未填写'}`
+    ).join('\n\n---\n\n');
+
+    const fullContent = `
+因果链分析
+==================
+
+${content.trim()}
+    `;
+
+    const blob = new Blob([fullContent.trim()], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = '因果链分析.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    message.success('已导出为 TXT 文件！');
+  };
+  
+  const handleSave = () => {
+    message.success('内容已保存！');
   };
 
   const handleClear = () => {
-    const initialReflections = items.reduce((acc, _, index) => {
-      acc[index] = { checked: false, content: '' };
-      return acc;
-    }, {});
-    setReflections(initialReflections);
-    setOtherThoughts('');
+    setCards(initialCards.map(c => ({...c, content: ''}))); 
+    message.info('所有卡片内容已清空。');
   };
 
   return (
     <Card size="small" bordered style={{ borderStyle: 'dashed' }}>
       <Space direction="vertical" style={{ width: '100%' }}>
-        {items.map((label, index) => (
-          <div key={index}>
-            <Checkbox
-              checked={reflections[index]?.checked}
-              onChange={handleCheckChange(index)}
-            >
-              {label}
-            </Checkbox>
-            {reflections[index]?.checked && (
-              <div style={{ marginTop: 8, paddingLeft: 24 }}>
-                <TextArea
-                  rows={2}
-                  placeholder={`请填写你对“${label}”的具体思考...`}
-                  value={reflections[index]?.content}
-                  onChange={handleContentChange(index)}
-                />
-              </div>
-            )}
-          </div>
+        <Paragraph type="secondary">
+          请从多个角度（如经济、政治、文化、社会等）思考事件的因果关系。您可以自由编辑、增加或删除下方的分析卡片。
+        </Paragraph>
+        
+        {cards.map(card => (
+          <EditableCard
+            key={card.id}
+            card={card}
+            onChange={handleCardChange}
+            onDelete={handleDeleteCard}
+          />
         ))}
 
-        <Divider dashed style={{ margin: '8px 0' }} />
+        <Button
+          type="dashed"
+          onClick={handleAddCard}
+          block
+          icon={<PlusOutlined />}
+        >
+          添加新卡片
+        </Button>
 
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Text strong>其他思考</Text>
-          <TextArea
-            rows={4}
-            placeholder="在这里自由地记录你的任何其他想法或疑问..."
-            value={otherThoughts}
-            onChange={(e) => setOtherThoughts(e.target.value)}
-          />
-        </Space>
+        <Divider style={{ margin: '16px 0 8px 0' }} />
 
-        <Space style={{ marginTop: 8 }}>
+        <Space>
           <Button type="primary" onClick={handleSave}>
-            保存所有反思
+            保存
+          </Button>
+          <Button onClick={handleExport}>
+            导出
           </Button>
           <Button onClick={handleClear}>
             清空
@@ -943,9 +1051,6 @@ function ReflectionSection({ onSaveReflection }) {
   );
 }
 
-
-/** * 底部 AI 引导 (融合修改版) 
- */
 function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
@@ -960,19 +1065,14 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     ]);
     const [loading, setLoading] = useState(false);
     const { message } = AntdApp.useApp();
-
-    // 使用 state 来暂存右键菜单选中的文本
     const [selectedMenuText, setSelectedMenuText] = useState('');
 
-    // 为AI消息添加右键菜单项 (这个函数现在对AI和用户消息通用)
     const menuItemsForAIMessage = (fullText) => [
         {
             key: 'add-to-map',
             label: '添加到论证图谱',
             onClick: () => {
-                // 优先使用暂存的选中文本，否则使用完整文本
                 const textToAdd = selectedMenuText || fullText;
-
                 if (textToAdd) {
                     addNodeToMap(textToAdd);
                     message.success(`“${textToAdd.substring(0, 15)}...”已添加到图谱`);
@@ -995,13 +1095,6 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         }
     }, []);
     
-
-    useEffect(() => {
-      if (open) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, [msgs, open]);
-
     const handleMouseUp = useCallback(() => {
       isResizing.current = false;
       document.body.style.cursor = 'default';
@@ -1022,14 +1115,13 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         if (!chatValue.trim() || loading) return;
 
         const userMessage = { role: 'user', text: chatValue };
-        // 先把用户消息和一条空的AI消息放进去
         const newMsgs = [...msgs, userMessage, { role: 'ai', text: '' }];
         setMsgs(newMsgs);
         setChatValue('');
         setLoading(true);
 
         const chatRequest = {
-            history: newMsgs.slice(0, -1).map(m => ({ // 注意这里-1，不把空消息发给后端
+            history: newMsgs.slice(0, -1).map(m => ({
                 role: m.role === 'ai' ? 'assistant' : 'user',
                 content: m.text
             })),
@@ -1039,7 +1131,6 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         };
 
         try {
-            // **核心修改：调用新的流式API**
             await postChatMessageStream(chatRequest, (chunk) => {
                 setMsgs(currentMsgs => {
                     const lastMsgIndex = currentMsgs.length - 1;
@@ -1133,7 +1224,6 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                                     )}
                                     {m.role === 'user' && (
                                         <>
-                                            {/* --- 这是为用户消息新增/修改的功能块 --- */}
                                             <Dropdown
                                                 menu={{ items: menuItemsForAIMessage(m.text) }}
                                                 trigger={['contextMenu']}
@@ -1178,10 +1268,8 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     );
 }
 
-/** 右侧 35%：笔记工作区 (与原文件相同) */
 function NotesWorkspace({
   topic,
-  savedConclusion,
   nodes,
   edges,
   onNodesChange,
@@ -1191,27 +1279,6 @@ function NotesWorkspace({
   setNodes,
   setEdges
 }) {
-  const [outlineData, setOutlineData] = useState({
-    topic: '',
-    timeline: [],
-    causality: [],
-    figures: [],
-    viewpoints: [],
-    evidence: [],
-    conclusion: '',
-  });
-  const [outlineLoading, setOutlineLoading] = useState(false);
-
-  const { message } = AntdApp.useApp();
-
-  const splitStringToArray = (str) => {
-    return str ? str.split(/[\n;；]/).map(item => item.trim()).filter(item => item) : [];
-  };
-
-  const saveOutlineItem = (key, value) => {
-    setOutlineData(prev => ({ ...prev, [key]: value }));
-    message.success(`${key} 已保存！`);
-  };
 
   const items = [
     {
@@ -1223,22 +1290,6 @@ function NotesWorkspace({
         </Space>
       ),
       children: <FreeNote />,
-    },
-    {
-      key: 'outline',
-      label: (
-        <Space>
-          <OrderedListOutlined />
-          指引大纲
-        </Space>
-      ),
-      children: (
-        <OutlineTemplate
-          data={outlineData}
-          loading={outlineLoading}
-          onSave={saveOutlineItem}
-        />
-      ),
     },
     {
       key: 'argument-map',
@@ -1265,53 +1316,12 @@ function NotesWorkspace({
     },
   ];
 
-  useEffect(() => {
-    if (!topic) return;
-
-    const fetchOutline = async () => {
-      setOutlineLoading(true);
-      try {
-        const response = await getStructuredOutline(topic);
-        if (response && response.data) {
-          const processedData = {
-            topic: response.data.topic || '',
-            timeline: splitStringToArray(response.data.timeline),
-            causality: splitStringToArray(response.data.causality),
-            figures: splitStringToArray(response.data.figures),
-            viewpoints: [],
-            evidence: [
-              'Jack Beeching的《中国鸦片战争》',
-              'Harry G. Gelber的《鸦片、士兵与福音派》',
-              'W. Travis Hanes和Frank Sanello的《鸦片战争》'
-            ],
-            conclusion: '',
-          };
-          setOutlineData(processedData);
-          message.success('大纲加载成功！');
-        } else {
-          message.warning('未获取到完整大纲数据。');
-        }
-      } catch (error) {
-        console.error("Failed to fetch structured outline:", error);
-        message.error('加载大纲失败，请检查网络或后端服务。');
-      } finally {
-        setOutlineLoading(false);
-      }
-    };
-
-    fetchOutline();
-  }, [topic, message]);
-
-  useEffect(() => {
-    setOutlineData(prev => ({ ...prev, conclusion: savedConclusion }));
-  }, [savedConclusion]);
-
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       <Title level={5} style={{ marginBottom: 0 }}>
         笔记工作区
       </Title>
-      <Text type="secondary">支持拖拽、自由笔记、指引大纲、论证图谱</Text>
+      <Text type="secondary">支持自由笔记、论证图谱</Text>
       <Tabs defaultActiveKey="note" items={items} />
     </Space>
   );
@@ -1334,217 +1344,5 @@ function FreeNote() {
         <Button onClick={() => setVal('')}>清空</Button>
       </Space>
     </Space>
-  );
-}
-
-function EditableItem({ initialValue, onSave, onDelete }) {
-  const [value, setValue] = useState(initialValue);
-
-  const handleSave = () => {
-    onSave(value);
-  };
-
-  const handleChange = (e) => {
-    setValue(e.target.value);
-  };
-
-  useEffect(() => setValue(initialValue), [initialValue]);
-
-  return (
-    <Card
-      size="small"
-      style={{ marginBottom: 8, borderLeft: '2px solid #52c41a' }}
-      actions={[
-        <Button type="text" onClick={handleSave} key="save">
-          保存
-        </Button>,
-        <Button type="text" danger icon={<DeleteOutlined />} onClick={onDelete} key="delete" />
-      ]}
-    >
-      <TextArea
-        rows={2}
-        value={value}
-        onChange={handleChange}
-        style={{ width: '100%' }}
-        autoSize
-      />
-    </Card>
-  );
-}
-
-function FormattedConclusion({ rawConclusion }) {
-  if (!rawConclusion) {
-    return (
-      <Empty
-        description="这里将显示你从模块四生成的反思总结内容。"
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-      />
-    );
-  }
-
-  const mainAndOtherThoughts = rawConclusion.split(/\n其他思考：\n/);
-  const mainPointsText = mainAndOtherThoughts[0] || '';
-  const otherThoughtsPart = mainAndOtherThoughts[1] || '';
-
-  const formattedPoints = mainPointsText
-    .split('\n- ')
-    .filter(Boolean)
-    .map((pointText) => {
-      const lines = pointText.trim().split('\n');
-      const title = lines[0].trim().replace('-', '').trim();
-      const subPoints = lines.slice(1).map((line) => line.trim().replace('-', '').trim()).filter(Boolean);
-      return { title, subPoints };
-    });
-
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <List
-        size="small"
-        dataSource={formattedPoints}
-        renderItem={(item) => (
-          <List.Item style={{ borderBottom: 'none', padding: '4px 0' }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text strong style={{ color: '#1890ff' }}>
-                {item.title}
-              </Text>
-              <List
-                size="small"
-                dataSource={item.subPoints}
-                renderItem={(subItem) => (
-                  <List.Item style={{ borderBottom: 'none', padding: '0 0 4px 16px' }}>
-                    <Text style={{ whiteSpace: 'pre-wrap' }}>{subItem}</Text>
-                  </List.Item>
-                )}
-              />
-            </Space>
-          </List.Item>
-        )}
-      />
-      {otherThoughtsPart && (
-        <>
-          <Divider dashed style={{ margin: '8px 0' }} />
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Text strong style={{ color: '#1890ff' }}>
-              其他思考
-            </Text>
-            <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-              {otherThoughtsPart.trim()}
-            </Paragraph>
-          </Space>
-        </>
-      )}
-    </Space>
-  );
-}
-
-function OutlineTemplate({ data, loading, onSave }) {
-  const [localData, setLocalData] = useState(data);
-
-  const handleSaveItem = (key, value) => {
-    onSave(key, value);
-  };
-
-  const renderEditableList = (key, listData) => (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      {listData.map((item, index) => (
-        <EditableItem
-          key={`${key}-${index}`}
-          initialValue={item}
-          onSave={(value) => {
-            const newList = [...listData];
-            newList[index] = value;
-            handleSaveItem(key, newList);
-          }}
-          onDelete={() => {
-            const newList = listData.filter((_, i) => i !== index);
-            handleSaveItem(key, newList);
-          }}
-        />
-      ))}
-      <Button
-        type="dashed"
-        onClick={() => {
-          const newList = [...listData, ''];
-          setLocalData({ ...localData, [key]: newList });
-        }}
-        block
-        icon={<PlusOutlined />}
-      >
-        添加新条目
-      </Button>
-    </Space>
-  );
-
-  const renderCard = (title, content) => {
-    return (
-      <Card
-        size="small"
-        title={<Text strong>{title}</Text>}
-        style={{ marginBottom: 16, borderLeft: '3px solid #1677ff' }}
-      >
-        {content}
-      </Card>
-    );
-  };
-
-  useEffect(() => {
-    setLocalData(data);
-  }, [data]);
-
-  return (
-    <Spin spinning={loading} tip="正在生成大纲..." size="large">
-      <Space direction="vertical" style={{ width: '100%', paddingBottom: 20 }}>
-
-        {renderCard(
-          '主题（研究问题/课题）',
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Input
-              value={localData.topic}
-              onChange={(e) => setLocalData({ ...localData, topic: e.target.value })}
-              style={{ width: '100%' }}
-            />
-            <Button
-              type="primary"
-              size="small"
-              onClick={() => handleSaveItem('topic', localData.topic)}
-              style={{ alignSelf: 'flex-end' }}
-            >
-              保存此项
-            </Button>
-          </Space>
-        )}
-
-        {renderCard(
-          '时间线（关键事件：时间、地点、人物、简述）',
-          renderEditableList('timeline', localData.timeline)
-        )}
-
-        {renderCard(
-          '因果链（直接原因/深层原因/触发事件 → 过程 → 结果/影响）',
-          renderEditableList('causality', localData.causality)
-        )}
-
-        {renderCard(
-          '人物/势力（立场、目标、行动、相互关系）',
-          renderEditableList('figures', localData.figures)
-        )}
-
-        {renderCard(
-          '观点与史学争鸣（不同史家/学派观点 + 论据）',
-          renderEditableList('viewpoints', localData.viewpoints)
-        )}
-
-        {renderCard(
-          '证据节点（摘录/数据/图表，指向原始史料或二手文献）',
-          renderEditableList('evidence', localData.evidence)
-        )}
-
-        {renderCard(
-          '结论/反思（你的判断、局限性、未解问题）',
-          <FormattedConclusion rawConclusion={localData.conclusion} />
-        )}
-        
-      </Space>
-    </Spin>
   );
 }
