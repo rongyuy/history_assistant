@@ -5,12 +5,28 @@ import wikipediaapi
 from app.services import llm_service 
 from app.services.scraping_service import fetch_url_content_async
 import requests
+from opencc import OpenCC
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
-    language='zh',
+    language='zh',  # 使用繁体中文，后续转换为简体
     timeout=30
 )
+
+# 创建繁简转换器
+cc = OpenCC('t2s')  # 繁体转简体
+
+def convert_to_simplified(text):
+    """
+    将繁体字转换为简体字
+    """
+    if not text:
+        return text
+    try:
+        return cc.convert(text)
+    except Exception as e:
+        print(f"繁简转换失败: {e}")
+        return text
 
 # 新增函数：通过调用MediaWiki API获取外部链接
 def get_external_links_from_wiki_api(topic_name: str) -> list:
@@ -59,7 +75,7 @@ def get_topic_data(topic_name: str) -> dict:
 
     if not page.exists():
         return {
-            "summary": f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。",
+            "summary": f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。",
             "timeline": []
         }
 
@@ -70,7 +86,11 @@ def get_topic_data(topic_name: str) -> dict:
     summary = structured_data.get("summary", "AI未能生成摘要。")
     timeline = structured_data.get("timeline", [])
     
-    # 3. 组合最终结果
+    # 3. 转换繁体字为简体字
+    summary = convert_to_simplified(summary)
+    timeline = [{"year": item.get("year", ""), "event": convert_to_simplified(item.get("event", ""))} for item in timeline]
+    
+    # 4. 组合最终结果
     return {
         "summary": summary,
         "timeline": timeline
@@ -87,7 +107,7 @@ def get_topic_discussion_data(topic_name: str) -> dict:
         return {
             "faction_roles": [],
             "viewpoints": [],
-            "debates": [f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"],
+            "debates": [f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。"],
             "full_discussion": ""
         }
     
@@ -113,12 +133,37 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     viewpoints = analysis_data.get("viewpoints", [])
     debates = analysis_data.get("debates", [])
     
-    # 4. 将所有数据合并到最终的返回结果中
+    # 4. 转换繁体字为简体字
+    # 转换faction_roles
+    converted_faction_roles = []
+    for faction in faction_roles:
+        converted_faction = {
+            "faction_name": convert_to_simplified(faction.get("faction_name", "")),
+            "roles": []
+        }
+        for role in faction.get("roles", []):
+            converted_role = {
+                "type": convert_to_simplified(role.get("type", "")),
+                "description": convert_to_simplified(role.get("description", ""))
+            }
+            converted_faction["roles"].append(converted_role)
+        converted_faction_roles.append(converted_faction)
+    
+    # 转换viewpoints
+    converted_viewpoints = [{"side": convert_to_simplified(vp.get("side", "")), "text": convert_to_simplified(vp.get("text", ""))} for vp in viewpoints]
+    
+    # 转换debates
+    converted_debates = [convert_to_simplified(debate) for debate in debates]
+    
+    # 转换讨论页内容
+    converted_talk_content = convert_to_simplified(talk_content)
+    
+    # 5. 将所有数据合并到最终的返回结果中
     return {
-        "faction_roles": faction_roles,
-        "viewpoints": viewpoints,
-        "debates": debates,
-        "full_discussion": talk_content
+        "faction_roles": converted_faction_roles,
+        "viewpoints": converted_viewpoints,
+        "debates": converted_debates,
+        "full_discussion": converted_talk_content
     }
 
 # 【核心修改】将 get_references_with_content 完全改造为异步并行模式
@@ -177,7 +222,7 @@ def get_wiki_full_content(topic_name: str) -> dict:
     
     if not page.exists():
         return {
-            "title": f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。",
+            "title": f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。",
             "content": "",
             "url": ""
         }
@@ -189,8 +234,8 @@ def get_wiki_full_content(topic_name: str) -> dict:
     page_url = page.fullurl
     
     return {
-        "title": page.title,
-        "content": full_content,
+        "title": convert_to_simplified(page.title),
+        "content": convert_to_simplified(full_content),
         "url": page_url
     }
 
@@ -205,7 +250,7 @@ def get_discussion_details(topic_name: str, debate_item: str) -> dict:
     if not page.exists():
         return {
             "detailed_viewpoints": [],
-            "discussion_content": f"抱歉,在维基百科中找不到关于'{topic_name}'的页面。"
+            "discussion_content": f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。"
         }
     
     # 准备讨论页内容
@@ -218,7 +263,17 @@ def get_discussion_details(topic_name: str, debate_item: str) -> dict:
     # 使用LLM分析特定讨论要点的详细内容
     analysis_data = llm_service.analyze_detailed_discussion(topic_name, debate_item, page.text, talk_content)
     
+    # 转换繁体字为简体字
+    detailed_viewpoints = []
+    for viewpoint in analysis_data.get("detailed_viewpoints", []):
+        converted_viewpoint = {
+            "side": convert_to_simplified(viewpoint.get("side", "")),
+            "text": convert_to_simplified(viewpoint.get("text", "")),
+            "evidence": convert_to_simplified(viewpoint.get("evidence", ""))
+        }
+        detailed_viewpoints.append(converted_viewpoint)
+    
     return {
-        "detailed_viewpoints": analysis_data.get("detailed_viewpoints", []),
-        "discussion_content": analysis_data.get("discussion_content", "")
+        "detailed_viewpoints": detailed_viewpoints,
+        "discussion_content": convert_to_simplified(analysis_data.get("discussion_content", ""))
     }

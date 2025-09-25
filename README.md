@@ -258,3 +258,23 @@ uvicorn app.main:app --reload
 ```
 
 >>>>>>> a2eda03fc59ca064582f7fba64a240e3b7e36f8d
+
+## 最新更新
+
+### 2024年更新 - 繁体字转简体字优化（简化方案）
+- **繁简转换库**：使用 `opencc-python-reimplemented` 库在输出时自动转换繁体字为简体字
+- **维基百科API**：保持使用繁体中文API (`zh`)，避免SSL连接问题
+- **自动转换**：在所有API返回数据时自动进行繁简转换，确保前端显示简体字
+- **内容显示优化**：确保前端显示的所有内容（包括"阅读原文"和"阅读完整讨论页"）都使用简体字
+
+### 技术细节
+- 添加了 `opencc-python-reimplemented` 依赖到 `requirements.txt`
+- 在 `wikipedia_service.py` 中添加了 `convert_to_simplified()` 函数
+- 在所有API返回数据时应用繁简转换
+- 保持了原有的功能逻辑，只是增加了输出时的转换步骤
+
+### 安装新依赖
+```bash
+cd backend
+pip install opencc-python-reimplemented
+```

@@ -9,3 +9,4 @@ openai
 sqlalchemy
 psycopg2-binary
 httpx
+opencc-python-reimplemented
