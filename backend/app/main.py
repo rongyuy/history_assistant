@@ -52,8 +52,3 @@ def save_notes(inquiry_id: str, data: dict, db: Session = Depends(database.get_d
     保存或更新指定探究项目的所有笔记和连接
     """
     return crud.save_notes_and_connections(db=db, inquiry_id=inquiry_id, data=data)
-
-
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the Socratic Learning Platform API"}

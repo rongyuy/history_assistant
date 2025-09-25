@@ -18,7 +18,6 @@ import {
   FloatButton,
   App as AntdApp, 
   message,
-  Modal,
   Spin, 
 } from 'antd';
 import {
@@ -113,7 +112,7 @@ export default function InquiryPage() {
             placeholder="请输入您想探究的历史主题"
             allowClear
           />
-          <Button type="primary" onClick={handleSearch} style={{ marginLeft: 8 }}>开始探究</Button>
+          <Button type="primary" onClick={handleSearch} style={{ marginLeft: 8 }}>开始探险</Button>
           <Button onClick={handleClear} style={{ marginLeft: 8 }}>清空</Button>
         </Header>
 
@@ -171,9 +170,34 @@ function WelcomePage() {
                 imageStyle={{ height: 80 }}
                 description={
                     <>
-                        <Title level={3}>欢迎来到历史探究学习平台</Title>
+                        <Title level={3}>🏛️ 历史探险家工作室</Title>
+                        <Paragraph type="secondary" style={{ fontSize: '16px', marginBottom: '24px' }}>
+                            欢迎，未来的历史探险家！你将接受来自历史研究院的任务，通过四个维度的深度探索，完成一份完整的历史调查报告。
+                        </Paragraph>
+                        <div style={{ 
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+                            padding: '20px', 
+                            borderRadius: '12px', 
+                            color: 'white',
+                            margin: '20px 0',
+                            textAlign: 'left'
+                        }}>
+                            <Title level={4} style={{ color: 'white', marginBottom: '16px' }}>🎯 你的任务</Title>
+                            <Paragraph style={{ color: 'white', marginBottom: '8px' }}>
+                                1. <strong>史实认知</strong> - 建立历史事件的基本框架
+                            </Paragraph>
+                            <Paragraph style={{ color: 'white', marginBottom: '8px' }}>
+                                2. <strong>观点辨析</strong> - 分析不同立场和争议
+                            </Paragraph>
+                            <Paragraph style={{ color: 'white', marginBottom: '8px' }}>
+                                3. <strong>史料分析</strong> - 对比多方史料证据
+                            </Paragraph>
+                            <Paragraph style={{ color: 'white', marginBottom: '0' }}>
+                                4. <strong>因果链分析</strong> - 形成你的历史判断
+                            </Paragraph>
+                        </div>
                         <Paragraph type="secondary">
-                            请在上方输入您感兴趣的历史主题（例如：“西安事变”），然后点击“开始探究”按钮，开启您的学习之旅。
+                            请在上方输入您感兴趣的历史主题（例如："西安事变"），然后点击"开始探险"按钮，开启您的历史调查之旅。
                         </Paragraph>
                     </>
                 }
@@ -203,8 +227,21 @@ function CoreExplorer({ topic, addNodeToMap }) {
   const [aiContext, setAiContext] = useState('');
   const [chatValue, setChatValue] = useState('');
 
+  // 任务进度状态
+  const [questProgress, setQuestProgress] = useState({
+    completedModules: [],
+    currentTask: '史实认知',
+    totalTasks: 4,
+    achievements: [],
+    moduleStates: {
+      '史实认知': 'pending', // pending, active, completed
+      '观点辨析': 'pending',
+      '史料分析': 'pending',
+      '因果链分析': 'pending'
+    }
+  });
+
   const [selectedTextForMenu, setSelectedTextForMenu] = useState('');
-  const [contextMenu, setContextMenu] = useState(null);
 
   const { message } = AntdApp.useApp();
 
@@ -265,6 +302,15 @@ function CoreExplorer({ topic, addNodeToMap }) {
 
       getWikiData(topic).then(res => {
         setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
+        // 激活史实认知任务
+        setQuestProgress(prev => ({
+          ...prev,
+          moduleStates: {
+            ...prev.moduleStates,
+            '史实认知': 'active'
+          }
+        }));
+        message.info('📚 史实认知任务已激活！请仔细阅读内容，完成后点击"AI引导"进行下一步。');
       }).catch(err => {
         console.error("模块一加载失败:", err);
       }).finally(() => {
@@ -278,6 +324,15 @@ function CoreExplorer({ topic, addNodeToMap }) {
 
       getViewpointAnalysis(topic).then(res => {
         setCoreData(prev => ({ ...prev, viewpoints: res.data }));
+        // 激活观点辨析任务
+        setQuestProgress(prev => ({
+          ...prev,
+          moduleStates: {
+            ...prev.moduleStates,
+            '观点辨析': 'active'
+          }
+        }));
+        message.info('💭 观点辨析任务已激活！请分析不同立场，完成后点击"AI引导"进行下一步。');
       }).catch(err => {
         console.error("模块二加载失败:", err);
       }).finally(() => {
@@ -286,6 +341,15 @@ function CoreExplorer({ topic, addNodeToMap }) {
 
       getSourcesComparison(topic).then(res => {
         setCoreData(prev => ({ ...prev, sources: res.data }));
+        // 激活史料分析任务
+        setQuestProgress(prev => ({
+          ...prev,
+          moduleStates: {
+            ...prev.moduleStates,
+            '史料分析': 'active'
+          }
+        }));
+        message.info('📖 史料分析任务已激活！请对比多方史料，完成后点击"AI引导"进行下一步。');
       }).catch(err => {
         console.error("模块三加载失败:", err);
       }).finally(() => {
@@ -299,27 +363,93 @@ function CoreExplorer({ topic, addNodeToMap }) {
   const handleActivateModule = (moduleName) => {
     setCurrentModule(moduleName);
     setChatOpen(true);
-    message.info(`AI 引导已切换到【${moduleName}】模块`);
-
+    
+    // 根据模块名称确定任务类型
+    let taskType = '';
     let context = '';
+    let aiPrompt = '';
+    
     switch (moduleName) {
-      case '模块一：史实认知':
-        context = `维基百科正文内容:\n${coreData.wikiFullContent.content}`;
+      case '任务一：史实认知':
+        taskType = '史实认知';
+        context = `维基百科正文内容:\n${coreData.wikiFullContent?.content || ''}`;
+        aiPrompt = '你现在正在指导学生完成"史实认知"任务。请帮助学生建立历史事件的基本框架，包括时间线、关键人物、主要事件等。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
         break;
-      case '模块二：观点辨析':
+      case '任务二：观点辨析':
+        taskType = '观点辨析';
         context = `对立观点:\n${coreData.viewpoints.viewpoints.map(vp => `${vp.side}: ${vp.text}`).join('\n\n')}\n\n讨论页要点:\n${coreData.viewpoints.debates.join('\n')}`;
+        aiPrompt = '你现在正在指导学生完成"观点辨析"任务。请帮助学生分析不同立场和争议，培养批判性思维。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
         break;
-      case '模块三：史料分析':
+      case '任务三：史料分析':
+        taskType = '史料分析';
         context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n---\n\n')}`;
+        aiPrompt = '你现在正在指导学生完成"史料分析"任务。请帮助学生对比多方史料证据，学会史料批判。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
         break;
-      case '模块四：因果链分析':
+      case '任务四：因果链分析':
+        taskType = '因果链分析';
         context = '用户正在进行因果链分析阶段。';
+        aiPrompt = '你现在正在指导学生完成"因果链分析"任务。请帮助学生形成自己的历史判断，完成最终报告。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
         break;
       default:
         context = '';
+        aiPrompt = '';
     }
-    setAiContext(context);
+    
+    // 如果任务已完成，显示完成状态
+    if (questProgress.moduleStates[taskType] === 'completed') {
+      message.info(`✅ 【${moduleName}】已完成！你可以继续学习或进入下一个任务。`);
+    } else {
+      message.info(`🎯 AI 引导已切换到【${moduleName}】模块`);
+    }
+    
+    setAiContext(`${aiPrompt}\n\n学习材料:\n${context}`);
   };
+
+  // 完成任务函数
+  const completeTask = (taskType) => {
+    setQuestProgress(prev => {
+      const newCompletedModules = [...prev.completedModules, taskType];
+      const newModuleStates = {
+        ...prev.moduleStates,
+        [taskType]: 'completed'
+      };
+      
+      // 确定下一个任务
+      let nextTask = '';
+      if (taskType === '史实认知') nextTask = '观点辨析';
+      else if (taskType === '观点辨析') nextTask = '史料分析';
+      else if (taskType === '史料分析') nextTask = '因果链分析';
+      else if (taskType === '因果链分析') nextTask = '完成';
+      
+      return {
+        ...prev,
+        completedModules: newCompletedModules,
+        currentTask: nextTask,
+        moduleStates: newModuleStates
+      };
+    });
+    
+    // 显示完成消息和徽章
+    const badgeMessages = {
+      '史实认知': '🎉 恭喜！你已完成"史实认知"任务，获得"历史记录员"徽章！',
+      '观点辨析': '🎉 恭喜！你已完成"观点辨析"任务，获得"辩论大师"徽章！',
+      '史料分析': '🎉 恭喜！你已完成"史料分析"任务，获得"证据收集者"徽章！',
+      '因果链分析': '🎉 恭喜！你已完成"因果链分析"任务，获得"历史探险家大师"徽章！'
+    };
+    
+    message.success(badgeMessages[taskType]);
+  };
+
+  // 检查是否完成所有任务
+  useEffect(() => {
+    if (questProgress.completedModules.length === questProgress.totalTasks) {
+      message.success('🎉 恭喜！你已完成所有探险任务！现在可以生成最终的历史调查报告了！');
+      setQuestProgress(prev => ({
+        ...prev,
+        achievements: [...prev.achievements, '历史探险家大师']
+      }));
+    }
+  }, [questProgress.completedModules.length, questProgress.totalTasks, message]);
 
   if (initialLoading) {
     return <div style={{ textAlign: 'center', marginTop: 48 }}><Spin size="large" tip="正在初始化探究模块..." /></div>;
@@ -332,14 +462,17 @@ function CoreExplorer({ topic, addNodeToMap }) {
   return (
     <div>
       <Dropdown
-        menu={{ items: menuItems.filter(item => selectedTextForMenu || item.key !== 'ask-ai' && item.key !== 'add-to-map') }}
+         menu={{ items: menuItems.filter(item => selectedTextForMenu || (item.key !== 'ask-ai' && item.key !== 'add-to-map')) }}
         trigger={['contextMenu']}
         onOpenChange={handleMenuVisibleChange}
       >
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
-          <Title level={3} style={{ marginBottom: 0 }}>
-            {topic}
-          </Title>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Title level={3} style={{ marginBottom: 0 }}>
+              🏛️ {topic}
+            </Title>
+            <QuestProgress questProgress={questProgress} />
+          </div>
 
           <Collapse
             bordered={false}
@@ -348,7 +481,14 @@ function CoreExplorer({ topic, addNodeToMap }) {
             items={[
               {
                 key: "facts",
-                label: <ModuleHeader icon={<BookOutlined />} title="模块一：史实认知" hint="维基百科摘要、关键时间线" onActivate={handleActivateModule} />,
+                label: <ModuleHeader 
+                  icon={<BookOutlined />} 
+                  title="任务一：史实认知" 
+                  hint="建立历史事件的基本框架" 
+                  onActivate={handleActivateModule}
+                  isCompleted={questProgress.completedModules.includes('史实认知')}
+                  taskState={questProgress.moduleStates['史实认知']}
+                />,
                 children: (
                   loadingStates.summary ? (
                     <div style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -361,7 +501,14 @@ function CoreExplorer({ topic, addNodeToMap }) {
               },
               {
                 key: "views",
-                label: <ModuleHeader icon={<BulbOutlined />} title="模块二：观点辨析" hint="不同阵营作用、A/B立场、讨论页观点" onActivate={handleActivateModule} />,
+                label: <ModuleHeader 
+                  icon={<BulbOutlined />} 
+                  title="任务二：观点辨析" 
+                  hint="分析不同立场和争议" 
+                  onActivate={handleActivateModule}
+                  isCompleted={questProgress.completedModules.includes('观点辨析')}
+                  taskState={questProgress.moduleStates['观点辨析']}
+                />,
                 children: (
                   loadingStates.viewpoints ? (
                     <div style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -374,7 +521,14 @@ function CoreExplorer({ topic, addNodeToMap }) {
               },
               {
                 key: "sources",
-                label: <ModuleHeader icon={<BookOutlined />} title="模块三：史料分析" hint="多史料片段对读" onActivate={handleActivateModule} />,
+                label: <ModuleHeader 
+                  icon={<BookOutlined />} 
+                  title="任务三：史料分析" 
+                  hint="对比多方史料证据" 
+                  onActivate={handleActivateModule}
+                  isCompleted={questProgress.completedModules.includes('史料分析')}
+                  taskState={questProgress.moduleStates['史料分析']}
+                />,
                 children: (
                   loadingStates.sources ? (
                     <div style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -387,40 +541,121 @@ function CoreExplorer({ topic, addNodeToMap }) {
               },
               {
                 key: "causality",
-                label: <ModuleHeader icon={<BulbOutlined />} title="模块四：因果链分析" hint="梳理事件的来龙去脉" onActivate={handleActivateModule} />,
-                children: <CausalityChainSection />,
+                label: <ModuleHeader 
+                  icon={<BulbOutlined />} 
+                  title="任务四：因果链分析" 
+                  hint="形成你的历史判断" 
+                  onActivate={handleActivateModule}
+                  isCompleted={questProgress.completedModules.includes('因果链分析')}
+                  taskState={questProgress.moduleStates['因果链分析']}
+                />,
+                children: <CausalityChainSection 
+                  questProgress={questProgress}
+                  onCompleteAllTasks={() => {
+                    setQuestProgress(prev => ({
+                      ...prev,
+                      completedModules: [...prev.completedModules, '因果链分析'],
+                      achievements: [...prev.achievements, '历史探险家大师']
+                    }));
+                    message.success('🎉 恭喜！你已完成"因果链分析"任务，获得"历史探险家大师"徽章！');
+                  }}
+                />,
               },
             ]}
           />
         </Space>
       </Dropdown>
       
-      <AIChatDock
-        topic={topic}
-        addNodeToMap={addNodeToMap}
-        currentModule={currentModule}
-        aiContext={aiContext}
-        open={isChatOpen}
-        setOpen={setChatOpen}
-        chatValue={chatValue}
-        setChatValue={setChatValue}
-      />
+       <AIChatDock
+         topic={topic}
+         addNodeToMap={addNodeToMap}
+         currentModule={currentModule}
+         aiContext={aiContext}
+         open={isChatOpen}
+         setOpen={setChatOpen}
+         chatValue={chatValue}
+         setChatValue={setChatValue}
+         questProgress={questProgress}
+         completeTask={completeTask}
+       />
     </div>
   );
 }
 
-function ModuleHeader({ icon, title, hint, onActivate }) {
+function QuestProgress({ questProgress }) {
+  const { completedModules, currentTask, totalTasks, moduleStates } = questProgress;
+  const progress = (completedModules.length / totalTasks) * 100;
+  
+  // 计算激活的任务数量
+  const activeTasks = Object.values(moduleStates).filter(state => state === 'active' || state === 'completed').length;
+  
+  return (
+    <div style={{ 
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+      padding: '12px 16px', 
+      borderRadius: '8px',
+      color: 'white',
+      minWidth: '200px'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <Text strong style={{ color: 'white' }}>探险进度</Text>
+        <Text style={{ color: 'white' }}>{completedModules.length}/{totalTasks}</Text>
+      </div>
+      <div style={{ 
+        background: 'rgba(255,255,255,0.3)', 
+        borderRadius: '4px', 
+        height: '6px',
+        marginBottom: '8px'
+      }}>
+        <div style={{ 
+          background: 'white', 
+          height: '100%', 
+          borderRadius: '4px', 
+          width: `${progress}%`,
+          transition: 'width 0.3s ease'
+        }} />
+      </div>
+      <Text style={{ color: 'white', fontSize: '12px' }}>
+        当前任务: {currentTask}
+      </Text>
+      <Text style={{ color: 'white', fontSize: '10px', opacity: 0.8 }}>
+        激活任务: {activeTasks}/{totalTasks}
+      </Text>
+    </div>
+  );
+}
+
+function ModuleHeader({ icon, title, hint, onActivate, isCompleted = false, taskState = 'pending' }) {
     const handleActivateClick = (e) => {
       e.stopPropagation(); 
       onActivate(title);
     }
 
+    // 根据任务状态显示不同的图标和颜色
+    const getStatusIcon = () => {
+      if (isCompleted) return '✅';
+      if (taskState === 'active') return '🎯';
+      return icon;
+    };
+
+    const getStatusColor = () => {
+      if (isCompleted) return '#52c41a';
+      if (taskState === 'active') return '#1890ff';
+      return 'inherit';
+    };
+
+    const getTagColor = () => {
+      if (isCompleted) return 'success';
+      if (taskState === 'active') return 'processing';
+      return 'default';
+    };
+
   return (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
         <Space>
-            {icon}
-            <Text strong>{title}</Text>
-            <Tag color="default">{hint}</Tag>
+            {getStatusIcon()}
+            <Text strong style={{ color: getStatusColor() }}>{title}</Text>
+            <Tag color={getTagColor()}>{hint}</Tag>
         </Space>
         <Button
           type="text"
@@ -428,7 +663,7 @@ function ModuleHeader({ icon, title, hint, onActivate }) {
           icon={<MessageOutlined />}
           onClick={handleActivateClick}
         >
-          AI引导
+          {isCompleted ? '已完成' : 'AI引导'}
         </Button>
     </div>
   );
@@ -476,7 +711,7 @@ function WikiSummaryCard({ data, initialFullContent }) {
             }));
             setTimelineItems(itemsWithId);
         }
-    }, [data.timeline]);
+    }, [data]);
 
     const handleToggleOriginal = () => {
         setIsExpanded(!isExpanded);
@@ -938,7 +1173,7 @@ function EditableCard({ card, onChange, onDelete }) {
   );
 }
 
-function CausalityChainSection() {
+function CausalityChainSection({ questProgress, onCompleteAllTasks }) {
   const initialCards = [
     { id: 1, title: '直接原因', content: '', placeholder: '导致事件发生的直接因素是什么？' },
     { id: 2, title: '深层原因', content: '', placeholder: '背后有哪些长期存在的、根本性的原因？' },
@@ -1001,11 +1236,45 @@ ${content.trim()}
   
   const handleSave = () => {
     message.success('内容已保存！');
+    // 检查是否完成因果链分析任务
+    if (cards.some(card => card.content.trim())) {
+      onCompleteAllTasks && onCompleteAllTasks();
+    }
   };
 
   const handleClear = () => {
     setCards(initialCards.map(c => ({...c, content: ''}))); 
     message.info('所有卡片内容已清空。');
+  };
+
+  const handleGenerateFinalReport = () => {
+    const reportContent = `
+# 历史调查报告
+## 探险家：历史学习者
+## 调查主题：${window.location.pathname.split('/').pop() || '历史事件'}
+## 完成时间：${new Date().toLocaleDateString()}
+
+## 任务完成情况
+${questProgress?.completedModules?.map(module => `✅ ${module}`).join('\n') || ''}
+
+## 因果链分析
+${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\n\n')}
+
+## 探险总结
+通过四个维度的深度探索，我们完成了对历史事件的全面分析。这份报告记录了我们的发现和思考过程。
+
+---
+*此报告由历史探险家工作室生成*
+    `;
+
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = '历史调查报告.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    message.success('🎉 最终报告已生成！恭喜你完成了这次历史探险！');
   };
 
   return (
@@ -1045,13 +1314,22 @@ ${content.trim()}
           <Button onClick={handleClear}>
             清空
           </Button>
+          {questProgress?.completedModules?.length >= 3 && (
+            <Button 
+              type="primary" 
+              style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
+              onClick={handleGenerateFinalReport}
+            >
+              🎯 生成最终报告
+            </Button>
+          )}
         </Space>
       </Space>
     </Card>
   );
 }
 
-function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue }) {
+function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
     const RIGHT_OFFSET = `calc(${SIDER_WIDTH_PERCENT} + ${CONTENT_PADDING}px)`;
@@ -1061,7 +1339,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     const messagesEndRef = useRef(null);
 
     const [msgs, setMsgs] = useState([
-        { role: 'ai', text: '你好！在探究过程中有任何想法或疑问，都可以和我交流。' },
+        { role: 'ai', text: '🏛️ 欢迎，历史探险家！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始第一个任务了吗？' },
     ]);
     const [loading, setLoading] = useState(false);
     const { message } = AntdApp.useApp();
@@ -1261,12 +1539,32 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                         disabled={loading}
                         autoSize={{ minRows: 1, maxRows: 5 }}
                     />
-                    <Button type="primary" onClick={send} loading={loading}>发送</Button>
-                </Space.Compact>
-            </div>
-        </Drawer>
-    );
-}
+                     <Button type="primary" onClick={send} loading={loading}>发送</Button>
+                 </Space.Compact>
+                 
+                 {/* 完成任务按钮 */}
+                 {currentModule && !questProgress.completedModules.includes(currentModule.replace('任务一：', '').replace('任务二：', '').replace('任务三：', '').replace('任务四：', '')) && (
+                     <div style={{ marginTop: 8, textAlign: 'center' }}>
+                         <Button 
+                             type="primary" 
+                             style={{ 
+                                 background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)', 
+                                 border: 'none',
+                                 borderRadius: '6px'
+                             }}
+                             onClick={() => {
+                                 const taskType = currentModule.replace('任务一：', '').replace('任务二：', '').replace('任务三：', '').replace('任务四：', '');
+                                 completeTask(taskType);
+                             }}
+                         >
+                             ✅ 标记任务完成
+                         </Button>
+                     </div>
+                 )}
+             </div>
+         </Drawer>
+     );
+ }
 
 function NotesWorkspace({
   topic,
