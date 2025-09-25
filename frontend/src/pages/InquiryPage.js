@@ -698,9 +698,21 @@ function WikiSummaryCard({ data, initialFullContent }) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [fullContent, setFullContent] = useState(null);
     const [timelineItems, setTimelineItems] = useState([]);
+    const [contentChunks, setContentChunks] = useState([]);
+    const [activeChunk, setActiveChunk] = useState(0);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [highlightedChunks, setHighlightedChunks] = useState([]);
+    const [readChunks, setReadChunks] = useState(new Set());
+    const [bookmarkedChunks, setBookmarkedChunks] = useState(new Set());
+    const [readingMode, setReadingMode] = useState('chunked'); // 'chunked' or 'full'
 
     useEffect(() => {
         setFullContent(initialFullContent);
+        if (initialFullContent?.content) {
+            // 智能分块处理
+            const chunks = smartContentChunking(initialFullContent.content);
+            setContentChunks(chunks);
+        }
     }, [initialFullContent]);
 
     useEffect(() => {
@@ -713,8 +725,106 @@ function WikiSummaryCard({ data, initialFullContent }) {
         }
     }, [data]);
 
+    // 智能内容分块函数
+    const smartContentChunking = (content) => {
+        if (!content) return [];
+        
+        // 按段落分割
+        const paragraphs = content.split('\n\n').filter(p => p.trim().length > 50);
+        
+        // 为每个段落生成摘要和关键词
+        return paragraphs.map((paragraph, index) => {
+            const words = paragraph.split(' ');
+            const summary = words.length > 100 
+                ? words.slice(0, 100).join(' ') + '...' 
+                : paragraph;
+            
+            // 提取关键词（简单实现）
+            const keywords = extractKeywords(paragraph);
+            
+            return {
+                id: index,
+                title: generateChunkTitle(paragraph),
+                summary: summary,
+                fullContent: paragraph,
+                keywords: keywords,
+                wordCount: words.length
+            };
+        });
+    };
+
+    // 提取关键词
+    const extractKeywords = (text) => {
+        // 简单的关键词提取，可以后续优化
+        const commonWords = ['的', '了', '在', '是', '有', '和', '与', '或', '但', '而', '这', '那', '一个', '一些', '各种', '不同', '重要', '主要', '基本', '一般', '通常', '经常', '总是', '从不', '已经', '正在', '将要', '可能', '应该', '必须', '可以', '能够', '需要', '想要', '希望', '认为', '觉得', '知道', '了解', '理解', '明白', '清楚', '明显', '显然', '当然', '自然', '当然', '确实', '真的', '非常', '很', '特别', '尤其', '更加', '比较', '相当', '十分', '完全', '全部', '所有', '每个', '任何', '一些', '许多', '大量', '少数', '多数', '大部分', '小部分', '一半', '全部', '整个', '部分', '方面', '角度', '观点', '看法', '意见', '想法', '建议', '方法', '方式', '手段', '途径', '渠道', '来源', '原因', '结果', '影响', '作用', '功能', '特点', '特征', '性质', '本质', '实质', '内容', '形式', '结构', '组织', '系统', '体系', '框架', '模式', '类型', '种类', '分类', '等级', '层次', '阶段', '步骤', '过程', '程序', '流程', '顺序', '排列', '组合', '联系', '关系', '关联', '连接', '结合', '融合', '整合', '统一', '协调', '配合', '合作', '协作', '共同', '一起', '同时', '先后', '前后', '左右', '上下', '内外', '中间', '中心', '核心', '重点', '关键', '主要', '次要', '重要', '必要', '必须', '需要', '要求', '条件', '前提', '基础', '根本', '基本', '主要', '核心', '关键', '重要', '必要', '必须', '需要', '要求', '条件', '前提', '基础', '根本', '基本'];
+        const words = text.split(/[\s\n\r\t，。！？；：""''（）【】《》〈〉、]/)
+            .filter(word => word.length > 1 && !commonWords.includes(word))
+            .slice(0, 5);
+        return [...new Set(words)];
+    };
+
+    // 生成段落标题
+    const generateChunkTitle = (paragraph) => {
+        const firstSentence = paragraph.split('。')[0];
+        if (firstSentence.length > 30) {
+            return firstSentence.substring(0, 30) + '...';
+        }
+        return firstSentence;
+    };
+
     const handleToggleOriginal = () => {
         setIsExpanded(!isExpanded);
+    };
+
+    // 搜索功能
+    const handleSearch = (term) => {
+        setSearchTerm(term);
+        if (!term.trim()) {
+            setHighlightedChunks([]);
+            return;
+        }
+        
+        const highlighted = contentChunks
+            .map((chunk, index) => ({
+                ...chunk,
+                index,
+                matches: chunk.fullContent.toLowerCase().includes(term.toLowerCase())
+            }))
+            .filter(chunk => chunk.matches);
+        
+        setHighlightedChunks(highlighted);
+    };
+
+    // 标记为已读
+    const markAsRead = (chunkIndex) => {
+        setReadChunks(prev => new Set([...prev, chunkIndex]));
+    };
+
+    // 切换收藏状态
+    const toggleBookmark = (chunkIndex) => {
+        setBookmarkedChunks(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(chunkIndex)) {
+                newSet.delete(chunkIndex);
+            } else {
+                newSet.add(chunkIndex);
+            }
+            return newSet;
+        });
+    };
+
+    // 计算阅读进度
+    const readingProgress = contentChunks.length > 0 ? (readChunks.size / contentChunks.length) * 100 : 0;
+
+    // 切换到下一个未读段落
+    const goToNextUnread = () => {
+        const unreadChunks = contentChunks
+            .map((chunk, index) => ({ chunk, index }))
+            .filter(({ index }) => !readChunks.has(index));
+        
+        if (unreadChunks.length > 0) {
+            setActiveChunk(unreadChunks[0].index);
+        }
     };
 
     const handleTimelineChange = (id, field, value) => {
@@ -777,19 +887,310 @@ function WikiSummaryCard({ data, initialFullContent }) {
             style={{ borderStyle: "dashed" }}
         >
             <Space direction="vertical" style={{ width: "100%" }}>
+                {/* AI生成的摘要部分 */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <Paragraph style={{ marginBottom: 0, flex: 1 }}>{data.summary || "暂无摘要"}</Paragraph>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ 
+                            background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f9ff 100%)', 
+                            padding: '16px', 
+                            borderRadius: '8px',
+                            border: '1px solid #bae7ff',
+                            marginBottom: '12px'
+                        }}>
+                            <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px' }}>
+                                🤖 AI智能摘要
+                            </Title>
+                            <Paragraph style={{ margin: 0, fontSize: '14px', lineHeight: '1.6' }}>
+                                {data.summary || "暂无摘要"}
+                            </Paragraph>
+                        </div>
+                    </div>
                     <Button
-                        type="link"
+                        type="primary"
                         size="small"
                         onClick={handleToggleOriginal}
                         style={{ marginLeft: 8, flexShrink: 0 }}
+                        icon={<BookOutlined />}
                     >
-                        {isExpanded ? '收起原文' : '阅读原文'}
+                        {isExpanded ? '收起原文' : '智能阅读'}
                     </Button>
                 </div>
 
-                {isExpanded && fullContent && (
+                {/* 智能阅读模式 */}
+                {isExpanded && contentChunks.length > 0 && (
+                    <>
+                        <Divider dashed style={{ margin: "8px 0" }} />
+                        
+                        {/* 搜索和导航栏 */}
+                        <div style={{ 
+                            background: '#fafafa', 
+                            padding: '12px', 
+                            borderRadius: '6px',
+                            border: '1px solid #f0f0f0',
+                            marginBottom: '12px'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <Title level={5} style={{ margin: 0, color: '#1890ff' }}>
+                                    📚 智能阅读模式
+                                </Title>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                        共 {contentChunks.length} 个段落
+                                    </Text>
+                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                        已读 {readChunks.size} 个
+                                    </Text>
+                                </div>
+                            </div>
+                            
+                            {/* 阅读进度条 */}
+                            <div style={{ marginBottom: '12px' }}>
+                                <div style={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between', 
+                                    alignItems: 'center',
+                                    marginBottom: '4px'
+                                }}>
+                                    <Text type="secondary" style={{ fontSize: '12px' }}>阅读进度</Text>
+                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                        {Math.round(readingProgress)}%
+                                    </Text>
+                                </div>
+                                <div style={{ 
+                                    background: '#e8e8e8', 
+                                    borderRadius: '4px', 
+                                    height: '6px',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{ 
+                                        background: 'linear-gradient(90deg, #52c41a 0%, #73d13d 100%)', 
+                                        height: '100%', 
+                                        width: `${readingProgress}%`,
+                                        transition: 'width 0.3s ease'
+                                    }} />
+                                </div>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Input.Search
+                                    placeholder="搜索关键词..."
+                                    value={searchTerm}
+                                    onChange={(e) => handleSearch(e.target.value)}
+                                    style={{ flex: 1, minWidth: '200px' }}
+                                    size="small"
+                                />
+                                <Button 
+                                    size="small" 
+                                    onClick={() => setActiveChunk(Math.max(0, activeChunk - 1))}
+                                    disabled={activeChunk === 0}
+                                >
+                                    上一段
+                                </Button>
+                                <Button 
+                                    size="small" 
+                                    onClick={() => setActiveChunk(Math.min(contentChunks.length - 1, activeChunk + 1))}
+                                    disabled={activeChunk === contentChunks.length - 1}
+                                >
+                                    下一段
+                                </Button>
+                                <Button 
+                                    size="small" 
+                                    onClick={goToNextUnread}
+                                    disabled={readChunks.size === contentChunks.length}
+                                    type="dashed"
+                                >
+                                    下一个未读
+                                </Button>
+                                <Button 
+                                    size="small" 
+                                    onClick={() => setReadingMode(readingMode === 'chunked' ? 'full' : 'chunked')}
+                                    type="text"
+                                >
+                                    {readingMode === 'chunked' ? '全文模式' : '分段模式'}
+                                </Button>
+                            </div>
+                            
+                            {/* 搜索结果显示 */}
+                            {highlightedChunks.length > 0 && (
+                                <div style={{ marginTop: '8px' }}>
+                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                        找到 {highlightedChunks.length} 个匹配段落
+                                    </Text>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 内容展示区域 */}
+                        <div style={{
+                            backgroundColor: '#f8f9fa', 
+                            padding: '16px', 
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef', 
+                            maxHeight: '500px', 
+                            overflowY: 'auto'
+                        }}>
+                            <Title level={5} style={{ marginTop: 0, marginBottom: 12, color: '#1890ff' }}>
+                                {fullContent?.title || '维基百科内容'}
+                            </Title>
+                            
+                            {/* 段落导航 */}
+                            <div style={{ 
+                                display: 'flex', 
+                                flexWrap: 'wrap', 
+                                gap: '4px', 
+                                marginBottom: '16px',
+                                padding: '8px',
+                                background: '#fff',
+                                borderRadius: '4px',
+                                border: '1px solid #e8e8e8'
+                            }}>
+                                {contentChunks.map((chunk, index) => {
+                                    const isRead = readChunks.has(index);
+                                    const isBookmarked = bookmarkedChunks.has(index);
+                                    const isActive = index === activeChunk;
+                                    
+                                    return (
+                                        <Button
+                                            key={chunk.id}
+                                            size="small"
+                                            type={isActive ? 'primary' : 'default'}
+                                            onClick={() => setActiveChunk(index)}
+                                            style={{ 
+                                                fontSize: '11px',
+                                                height: '24px',
+                                                padding: '0 8px',
+                                                position: 'relative',
+                                                opacity: isRead ? 0.7 : 1,
+                                                border: isBookmarked ? '2px solid #faad14' : undefined
+                                            }}
+                                        >
+                                            <span style={{ 
+                                                textDecoration: isRead ? 'line-through' : 'none',
+                                                color: isRead ? '#8c8c8c' : undefined
+                                            }}>
+                                                {index + 1}. {chunk.title}
+                                            </span>
+                                            {isBookmarked && (
+                                                <span style={{ marginLeft: '4px' }}>⭐</span>
+                                            )}
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* 当前段落内容 */}
+                            <div style={{ marginBottom: '16px' }}>
+                                <div style={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between', 
+                                    alignItems: 'center',
+                                    marginBottom: '8px'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Text strong style={{ color: '#1890ff' }}>
+                                            第 {activeChunk + 1} 段：{contentChunks[activeChunk]?.title}
+                                        </Text>
+                                        {readChunks.has(activeChunk) && (
+                                            <Tag color="green" size="small">已读</Tag>
+                                        )}
+                                        {bookmarkedChunks.has(activeChunk) && (
+                                            <Tag color="gold" size="small">⭐ 已收藏</Tag>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                                            {contentChunks[activeChunk]?.wordCount} 字
+                                        </Text>
+                                        <Button
+                                            size="small"
+                                            type={readChunks.has(activeChunk) ? 'default' : 'primary'}
+                                            onClick={() => markAsRead(activeChunk)}
+                                            style={{ fontSize: '11px' }}
+                                        >
+                                            {readChunks.has(activeChunk) ? '✓ 已读' : '标记已读'}
+                                        </Button>
+                                        <Button
+                                            size="small"
+                                            type={bookmarkedChunks.has(activeChunk) ? 'primary' : 'default'}
+                                            onClick={() => toggleBookmark(activeChunk)}
+                                            style={{ fontSize: '11px' }}
+                                        >
+                                            {bookmarkedChunks.has(activeChunk) ? '⭐ 已收藏' : '⭐ 收藏'}
+                                        </Button>
+                                    </div>
+                                </div>
+                                
+                                <div style={{ 
+                                    whiteSpace: 'pre-wrap', 
+                                    fontSize: '14px', 
+                                    lineHeight: '1.7', 
+                                    color: '#2c3e50',
+                                    background: '#fff',
+                                    padding: '12px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #e8e8e8',
+                                    position: 'relative'
+                                }}>
+                                    {contentChunks[activeChunk]?.fullContent}
+                                    
+                                    {/* 阅读完成提示 */}
+                                    {!readChunks.has(activeChunk) && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '8px',
+                                            right: '8px',
+                                            background: '#fff7e6',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #ffd591',
+                                            fontSize: '11px',
+                                            color: '#d46b08'
+                                        }}>
+                                            点击"标记已读"完成此段
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* 关键词标签 */}
+                                {contentChunks[activeChunk]?.keywords?.length > 0 && (
+                                    <div style={{ marginTop: '8px' }}>
+                                        <Text type="secondary" style={{ fontSize: '12px', marginRight: '8px' }}>关键词：</Text>
+                                        {contentChunks[activeChunk].keywords.map((keyword, idx) => (
+                                            <Tag key={idx} size="small" color="blue" style={{ margin: '2px' }}>
+                                                {keyword}
+                                            </Tag>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 原始链接 */}
+                            {fullContent?.url && (
+                                <div style={{ 
+                                    textAlign: 'right', 
+                                    paddingTop: '12px',
+                                    borderTop: '1px solid #e8e8e8'
+                                }}>
+                                    <a 
+                                        href={fullContent.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        style={{ 
+                                            color: '#1890ff',
+                                            textDecoration: 'none',
+                                            fontSize: '12px'
+                                        }}
+                                    >
+                                        🔗 在维基百科中查看完整页面
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+
+                {/* 传统阅读模式（备用） */}
+                {isExpanded && contentChunks.length === 0 && fullContent && (
                     <>
                         <Divider dashed style={{ margin: "8px 0" }} />
                         <div style={{
