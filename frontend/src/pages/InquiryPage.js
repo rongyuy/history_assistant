@@ -45,6 +45,20 @@ export default function InquiryPage() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
 
+  // 任务进度状态 - 提升到主组件
+  const [questProgress, setQuestProgress] = useState({
+    completedModules: [],
+    currentTask: '史实认知',
+    totalTasks: 4,
+    achievements: [],
+    moduleStates: {
+      '史实认知': 'pending', // pending, active, completed
+      '观点辨析': 'pending',
+      '史料分析': 'pending',
+      '历史批判思维训练': 'pending'
+    }
+  });
+
   const onNodesChange = (changes) => setNodes((nds) => applyNodeChanges(changes, nds));
   const onEdgesChange = (changes) => setEdges((eds) => applyEdgeChanges(changes, eds));
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
@@ -126,7 +140,12 @@ export default function InquiryPage() {
             }}
           >
             {topic ? (
-              <CoreExplorer topic={topic} addNodeToMap={addNodeToMap} />
+              <CoreExplorer 
+                topic={topic} 
+                addNodeToMap={addNodeToMap}
+                questProgress={questProgress}
+                setQuestProgress={setQuestProgress}
+              />
             ) : (
               <WelcomePage />
             )}
@@ -152,6 +171,15 @@ export default function InquiryPage() {
               addBlankNode={addBlankNode}
               setNodes={setNodes}
               setEdges={setEdges}
+              questProgress={questProgress}
+              onCompleteAllTasks={() => {
+                setQuestProgress(prev => ({
+                  ...prev,
+                  completedModules: [...prev.completedModules, '历史批判思维训练'],
+                  achievements: [...prev.achievements, '历史批判思想家']
+                }));
+                message.success('🎉 恭喜！你已完成"历史批判思维训练"任务，获得"历史批判思想家"徽章！');
+              }}
             />
           </Sider>
         </Layout>
@@ -206,7 +234,7 @@ function WelcomePage() {
     );
 }
 
-function CoreExplorer({ topic, addNodeToMap }) {
+function CoreExplorer({ topic, addNodeToMap, questProgress, setQuestProgress }) {
   const [loadingStates, setLoadingStates] = useState({
     summary: true,
     viewpoints: true,
@@ -227,19 +255,7 @@ function CoreExplorer({ topic, addNodeToMap }) {
   const [aiContext, setAiContext] = useState('');
   const [chatValue, setChatValue] = useState('');
 
-  // 任务进度状态
-  const [questProgress, setQuestProgress] = useState({
-    completedModules: [],
-    currentTask: '史实认知',
-    totalTasks: 4,
-    achievements: [],
-    moduleStates: {
-      '史实认知': 'pending', // pending, active, completed
-      '观点辨析': 'pending',
-      '史料分析': 'pending',
-      '因果链分析': 'pending'
-    }
-  });
+  // 任务进度状态现在从父组件传入
 
   const [selectedTextForMenu, setSelectedTextForMenu] = useState('');
 
@@ -346,10 +362,11 @@ function CoreExplorer({ topic, addNodeToMap }) {
           ...prev,
           moduleStates: {
             ...prev.moduleStates,
-            '史料分析': 'active'
+            '史料分析': 'active',
+            '历史批判思维训练': 'active' // 同时激活历史批判思维训练任务
           }
         }));
-        message.info('📖 史料分析任务已激活！请对比多方史料，完成后点击"AI引导"进行下一步。');
+        message.info('📖 史料分析任务已激活！请对比多方史料，完成后可以进入笔记工作区进行历史批判思维训练。');
       }).catch(err => {
         console.error("模块三加载失败:", err);
       }).finally(() => {
@@ -373,22 +390,22 @@ function CoreExplorer({ topic, addNodeToMap }) {
       case '任务一：史实认知':
         taskType = '史实认知';
         context = `维基百科正文内容:\n${coreData.wikiFullContent?.content || ''}`;
-        aiPrompt = '你现在正在指导学生完成"史实认知"任务。请帮助学生建立历史事件的基本框架，包括时间线、关键人物、主要事件等。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
+        aiPrompt = '你现在正在指导学生完成"史实认知"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生建立历史事件的基本框架，包括时间线、关键人物、主要事件等。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
         break;
       case '任务二：观点辨析':
         taskType = '观点辨析';
         context = `对立观点:\n${coreData.viewpoints.viewpoints.map(vp => `${vp.side}: ${vp.text}`).join('\n\n')}\n\n讨论页要点:\n${coreData.viewpoints.debates.join('\n')}`;
-        aiPrompt = '你现在正在指导学生完成"观点辨析"任务。请帮助学生分析不同立场和争议，培养批判性思维。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
+        aiPrompt = '你现在正在指导学生完成"观点辨析"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生分析不同立场和争议，培养批判性思维。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
         break;
       case '任务三：史料分析':
         taskType = '史料分析';
         context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n---\n\n')}`;
-        aiPrompt = '你现在正在指导学生完成"史料分析"任务。请帮助学生对比多方史料证据，学会史料批判。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
+        aiPrompt = '你现在正在指导学生完成"史料分析"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生对比多方史料证据，学会史料批判。当学生完成学习后，请引导他们进入笔记工作区进行历史批判思维训练。';
         break;
-      case '任务四：因果链分析':
-        taskType = '因果链分析';
-        context = '用户正在进行因果链分析阶段。';
-        aiPrompt = '你现在正在指导学生完成"因果链分析"任务。请帮助学生形成自己的历史判断，完成最终报告。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
+      case '任务四：历史批判思维训练':
+        taskType = '历史批判思维训练';
+        context = '用户正在进行历史批判思维训练阶段，需要形成独特的历史视角。';
+        aiPrompt = '你现在正在指导学生完成"历史批判思维训练"任务。请利用苏格拉底教育法，通过深度提问帮助学生：1) 形成对历史事件的独特视角和判断；2) 培养历史批判思维能力；3) 学会从多个角度分析历史问题；4) 形成自己的历史观点并为之辩护。请通过连续的问题引导学生深入思考，最终帮助他们完成一份具有历史批判思维的历史调查报告。';
         break;
       default:
         context = '';
@@ -418,8 +435,8 @@ function CoreExplorer({ topic, addNodeToMap }) {
       let nextTask = '';
       if (taskType === '史实认知') nextTask = '观点辨析';
       else if (taskType === '观点辨析') nextTask = '史料分析';
-      else if (taskType === '史料分析') nextTask = '因果链分析';
-      else if (taskType === '因果链分析') nextTask = '完成';
+      else if (taskType === '史料分析') nextTask = '历史批判思维训练（在笔记工作区）';
+      else if (taskType === '历史批判思维训练') nextTask = '完成';
       
       return {
         ...prev,
@@ -434,7 +451,7 @@ function CoreExplorer({ topic, addNodeToMap }) {
       '史实认知': '🎉 恭喜！你已完成"史实认知"任务，获得"历史记录员"徽章！',
       '观点辨析': '🎉 恭喜！你已完成"观点辨析"任务，获得"辩论大师"徽章！',
       '史料分析': '🎉 恭喜！你已完成"史料分析"任务，获得"证据收集者"徽章！',
-      '因果链分析': '🎉 恭喜！你已完成"因果链分析"任务，获得"历史探险家大师"徽章！'
+      '历史批判思维训练': '🎉 恭喜！你已完成"历史批判思维训练"任务，获得"历史批判思想家"徽章！'
     };
     
     message.success(badgeMessages[taskType]);
@@ -538,28 +555,6 @@ function CoreExplorer({ topic, addNodeToMap }) {
                     <SourcesComparisonCard data={coreData.sources} />
                   )
                 ),
-              },
-              {
-                key: "causality",
-                label: <ModuleHeader 
-                  icon={<BulbOutlined />} 
-                  title="任务四：因果链分析" 
-                  hint="形成你的历史判断" 
-                  onActivate={handleActivateModule}
-                  isCompleted={questProgress.completedModules.includes('因果链分析')}
-                  taskState={questProgress.moduleStates['因果链分析']}
-                />,
-                children: <CausalityChainSection 
-                  questProgress={questProgress}
-                  onCompleteAllTasks={() => {
-                    setQuestProgress(prev => ({
-                      ...prev,
-                      completedModules: [...prev.completedModules, '因果链分析'],
-                      achievements: [...prev.achievements, '历史探险家大师']
-                    }));
-                    message.success('🎉 恭喜！你已完成"因果链分析"任务，获得"历史探险家大师"徽章！');
-                  }}
-                />,
               },
             ]}
           />
@@ -1574,13 +1569,13 @@ function EditableCard({ card, onChange, onDelete }) {
   );
 }
 
-function CausalityChainSection({ questProgress, onCompleteAllTasks }) {
+function HistoricalCriticalThinkingSection({ questProgress, onCompleteAllTasks }) {
   const initialCards = [
-    { id: 1, title: '直接原因', content: '', placeholder: '导致事件发生的直接因素是什么？' },
-    { id: 2, title: '深层原因', content: '', placeholder: '背后有哪些长期存在的、根本性的原因？' },
-    { id: 3, title: '触发事件', content: '', placeholder: '点燃导火索的具体事件是什么？' },
-    { id: 4, title: '过程', content: '', placeholder: '事件发展的关键阶段和转折点有哪些？' },
-    { id: 5, title: '结果/影响', content: '', placeholder: '事件带来了哪些短期和长期的影响？' },
+    { id: 1, title: '我的历史视角', content: '', placeholder: '基于前面的学习，我对这个历史事件形成了什么独特的观点和判断？' },
+    { id: 2, title: '关键证据分析', content: '', placeholder: '哪些证据最能支持我的观点？这些证据的可靠性如何？' },
+    { id: 3, title: '反对观点思考', content: '', placeholder: '如果有人反对我的观点，他们会提出什么论据？我如何回应？' },
+    { id: 4, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天有什么启示？' },
+    { id: 5, title: '批判性结论', content: '', placeholder: '基于批判性思维，我的最终历史判断是什么？为什么？' },
   ];
   
   const [cards, setCards] = useState(initialCards);
@@ -1650,39 +1645,39 @@ ${content.trim()}
 
   const handleGenerateFinalReport = () => {
     const reportContent = `
-# 历史调查报告
-## 探险家：历史学习者
-## 调查主题：${window.location.pathname.split('/').pop() || '历史事件'}
+# 历史批判思维调查报告
+## 研究者：历史学习者
+## 研究主题：${window.location.pathname.split('/').pop() || '历史事件'}
 ## 完成时间：${new Date().toLocaleDateString()}
 
-## 任务完成情况
+## 学习任务完成情况
 ${questProgress?.completedModules?.map(module => `✅ ${module}`).join('\n') || ''}
 
-## 因果链分析
+## 我的历史批判思维分析
 ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\n\n')}
 
-## 探险总结
-通过四个维度的深度探索，我们完成了对历史事件的全面分析。这份报告记录了我们的发现和思考过程。
+## 批判性思考总结
+通过四个维度的深度学习和批判性思维训练，我形成了对历史事件的独特视角和独立思考。这份报告记录了我的批判性分析过程和最终判断。
 
 ---
-*此报告由历史探险家工作室生成*
+*此报告体现了历史批判思维训练成果*
     `;
 
     const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = '历史调查报告.txt';
+    link.download = '历史批判思维调查报告.txt';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    message.success('🎉 最终报告已生成！恭喜你完成了这次历史探险！');
+    message.success('🎉 历史批判思维调查报告已生成！恭喜你完成了批判性思维训练！');
   };
 
   return (
     <Card size="small" bordered style={{ borderStyle: 'dashed' }}>
       <Space direction="vertical" style={{ width: '100%' }}>
         <Paragraph type="secondary">
-          请从多个角度（如经济、政治、文化、社会等）思考事件的因果关系。您可以自由编辑、增加或删除下方的分析卡片。
+          请运用批判性思维，形成您对历史事件的独特视角和判断。通过深度思考，培养历史批判思维能力，最终完成一份具有独立思考的历史调查报告。您可以自由编辑、增加或删除下方的思考卡片。
         </Paragraph>
         
         {cards.map(card => (
@@ -1960,6 +1955,11 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                          >
                              ✅ 标记任务完成
                          </Button>
+                         {currentModule === '任务三：史料分析' && (
+                             <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
+                                 完成后请进入右侧笔记工作区进行历史批判思维训练
+                             </div>
+                         )}
                      </div>
                  )}
              </div>
@@ -1976,8 +1976,13 @@ function NotesWorkspace({
   onConnect,
   addBlankNode,
   setNodes,
-  setEdges
+  setEdges,
+  questProgress,
+  onCompleteAllTasks
 }) {
+  const [noteContent, setNoteContent] = useState('');
+  const [isGeneratingMap, setIsGeneratingMap] = useState(false);
+  const { message } = AntdApp.useApp();
 
   const items = [
     {
@@ -1988,7 +1993,20 @@ function NotesWorkspace({
           自由笔记
         </Space>
       ),
-      children: <FreeNote />,
+      children: <FreeNote noteContent={noteContent} setNoteContent={setNoteContent} />,
+    },
+    {
+      key: 'causality',
+      label: (
+        <Space>
+          <BulbOutlined />
+          任务四：历史批判思维训练
+        </Space>
+      ),
+      children: <HistoricalCriticalThinkingSection 
+        questProgress={questProgress}
+        onCompleteAllTasks={onCompleteAllTasks}
+      />,
     },
     {
       key: 'argument-map',
@@ -2009,6 +2027,9 @@ function NotesWorkspace({
             addBlankNode={addBlankNode}
             setNodes={setNodes}
             setEdges={setEdges}
+            noteContent={noteContent}
+            isGeneratingMap={isGeneratingMap}
+            setIsGeneratingMap={setIsGeneratingMap}
           />
         </ReactFlowProvider>
       ),
@@ -2020,27 +2041,28 @@ function NotesWorkspace({
       <Title level={5} style={{ marginBottom: 0 }}>
         笔记工作区
       </Title>
-      <Text type="secondary">支持自由笔记、论证图谱</Text>
+      <Text type="secondary">支持自由笔记、历史批判思维训练、论证图谱</Text>
       <Tabs defaultActiveKey="note" items={items} />
     </Space>
   );
 }
 
-function FreeNote() {
-  const [val, setVal] = useState('');
+function FreeNote({ noteContent, setNoteContent }) {
+  const { message } = AntdApp.useApp();
+  
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
       <TextArea
         rows={12}
         placeholder="随手记录要点、证据与疑问……"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
+        value={noteContent}
+        onChange={(e) => setNoteContent(e.target.value)}
       />
       <Space>
         <Button type="primary" onClick={() => message.success('已保存到本地（示例）')}>
           保存
         </Button>
-        <Button onClick={() => setVal('')}>清空</Button>
+        <Button onClick={() => setNoteContent('')}>清空</Button>
       </Space>
     </Space>
   );
