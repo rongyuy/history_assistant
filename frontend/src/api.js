@@ -77,3 +77,7 @@ export const postChatMessageStream = async (chatRequest, onChunk) => {
     onChunk(chunk); // 调用回调函数处理每个数据块
   }
 };
+
+export const getWikiHtmlContent = (topic) => {
+  return apiClient.get(`/html-content/${topic}`);
+};

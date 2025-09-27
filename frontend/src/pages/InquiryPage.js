@@ -19,6 +19,11 @@ import {
   App as AntdApp, 
   message,
   Spin, 
+  Modal,
+  Row,
+  Col,
+  Anchor,
+  Popover,
 } from 'antd';
 import {
   BookOutlined,
@@ -29,13 +34,20 @@ import {
   OrderedListOutlined,
   ApartmentOutlined,
   PlusOutlined,
+  SaveOutlined, 
+  DownloadOutlined, 
+  ClearOutlined,
+  ExclamationCircleFilled, 
+  LinkOutlined,
 } from '@ant-design/icons';
 import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiFullContent, getDiscussionDetails } from '../api';
 import ArgumentMap from '../ArgumentMap'
+import DOMPurify from 'dompurify'
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
+const { confirm } = Modal; // 从 Modal 中解构 confirm
 
 
 export default function InquiryPage() {
@@ -132,6 +144,7 @@ export default function InquiryPage() {
 
         <Layout style={{ height: 'calc(100vh - 64px)' }}>
           <Content
+            id="main-content-area"
             style={{
               padding: 24,
               paddingBottom: 120,
@@ -142,6 +155,7 @@ export default function InquiryPage() {
             {topic ? (
               <CoreExplorer 
                 topic={topic} 
+                setTopic={setTopic}
                 addNodeToMap={addNodeToMap}
                 questProgress={questProgress}
                 setQuestProgress={setQuestProgress}
@@ -234,7 +248,7 @@ function WelcomePage() {
     );
 }
 
-function CoreExplorer({ topic, addNodeToMap, questProgress, setQuestProgress }) {
+function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestProgress }) {
   const [loadingStates, setLoadingStates] = useState({
     summary: true,
     viewpoints: true,
@@ -512,7 +526,11 @@ function CoreExplorer({ topic, addNodeToMap, questProgress, setQuestProgress }) 
                       <Spin tip="AI正在生成摘要与时间线..." />
                     </div>
                   ) : (
-                    <WikiSummaryCard data={coreData.wikiSummary} initialFullContent={coreData.wikiFullContent} />
+                    <WikiSummaryCard 
+                      data={coreData.wikiSummary} 
+                      initialFullContent={coreData.wikiFullContent} 
+                      setTopic={setTopic} 
+                    />
                   )
                 ),
               },
@@ -689,561 +707,334 @@ function EditableTimelineItem({ item, onChange, onDelete }) {
   );
 }
 
-function WikiSummaryCard({ data, initialFullContent }) {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const [fullContent, setFullContent] = useState(null);
-    const [timelineItems, setTimelineItems] = useState([]);
-    const [contentChunks, setContentChunks] = useState([]);
-    const [activeChunk, setActiveChunk] = useState(0);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [highlightedChunks, setHighlightedChunks] = useState([]);
-    const [readChunks, setReadChunks] = useState(new Set());
-    const [bookmarkedChunks, setBookmarkedChunks] = useState(new Set());
-    const [readingMode, setReadingMode] = useState('chunked'); // 'chunked' or 'full'
+function WikiSummaryCard({ data, initialFullContent, setTopic }) {
+  const { summary } = data;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const contentRef = useRef(null);
 
-    useEffect(() => {
-        setFullContent(initialFullContent);
-        if (initialFullContent?.content) {
-            // 智能分块处理
-            const chunks = smartContentChunking(initialFullContent.content);
-            setContentChunks(chunks);
-        }
-    }, [initialFullContent]);
+  // --- 为悬浮窗和链接跳转新增的 State 和处理逻辑 ---
+  const [popover, setPopover] = useState({ visible: false, content: '', target: null });
+  const summaryCache = useRef(new Map()).current;
 
-    useEffect(() => {
-        if (data && data.timeline) {
-            const itemsWithId = data.timeline.map((item, index) => ({
-                ...item,
-                id: `timeline-${index}-${Math.random()}`
-            }));
-            setTimelineItems(itemsWithId);
-        }
-    }, [data]);
+  // 使用 useCallback 包装事件处理函数，防止因函数重复创建导致不必要的子组件重渲染或useEffect重跑
+  const handleLinkMouseOver = useCallback(async (e) => {
+    e.preventDefault();
+    const term = e.target.getAttribute('href')?.replace('/wiki/', '');
+    if (!term) return;
 
-    // 智能内容分块函数
-    const smartContentChunking = (content) => {
-        if (!content) return [];
-        
-        // 按段落分割
-        const paragraphs = content.split('\n\n').filter(p => p.trim().length > 50);
-        
-        // 为每个段落生成摘要和关键词
-        return paragraphs.map((paragraph, index) => {
-            const words = paragraph.split(' ');
-            const summary = words.length > 100 
-                ? words.slice(0, 100).join(' ') + '...' 
-                : paragraph;
-            
-            // 提取关键词（简单实现）
-            const keywords = extractKeywords(paragraph);
-            
-            return {
-                id: index,
-                title: generateChunkTitle(paragraph),
-                summary: summary,
-                fullContent: paragraph,
-                keywords: keywords,
-                wordCount: words.length
-            };
+    setPopover({ visible: true, content: <Spin size="small" />, target: e.target });
+
+    if (summaryCache.has(term)) {
+      setPopover(prev => ({ ...prev, content: summaryCache.get(term) }));
+      return;
+    }
+
+    try {
+      const res = await getWikiData(decodeURIComponent(term));
+      const summaryText = res.data.summary;
+      summaryCache.set(term, summaryText);
+      setPopover(prev => ({ ...prev, content: summaryText }));
+    } catch (error) {
+      setPopover(prev => ({ ...prev, content: '摘要加载失败' }));
+    }
+  }, [summaryCache]); // 依赖 summaryCache
+
+  const handleLinkMouseOut = useCallback((e) => {
+    e.preventDefault();
+    setPopover({ visible: false, content: '', target: null });
+  }, []);
+  
+  const handleLinkClick = useCallback((e) => {
+    e.preventDefault();
+    const term = e.target.getAttribute('href')?.replace('/wiki/', '');
+    if (term && setTopic) {
+      const decodedTerm = decodeURIComponent(term).replace(/_/g, ' ');
+      message.info(`正在跳转到新主题: ${decodedTerm}`);
+      setTopic(decodedTerm);
+    }
+  }, [setTopic]); // 依赖 setTopic
+
+  // 使用 useEffect 为动态加载的HTML内容绑定事件
+  useEffect(() => {
+    if (isExpanded && contentRef.current) {
+      const links = Array.from(contentRef.current.querySelectorAll('a[href^="/wiki/"]'));
+      links.forEach(link => {
+        link.addEventListener('click', handleLinkClick);
+        link.addEventListener('mouseover', handleLinkMouseOver);
+        link.addEventListener('mouseout', handleLinkMouseOut);
+      });
+      
+      return () => {
+        links.forEach(link => {
+          link.removeEventListener('click', handleLinkClick);
+          link.removeEventListener('mouseover', handleLinkMouseOver);
+          link.removeEventListener('mouseout', handleLinkMouseOut);
         });
-    };
+      };
+    }
+  }, [isExpanded, initialFullContent, handleLinkClick, handleLinkMouseOver, handleLinkMouseOut]);
 
-    // 提取关键词
-    const extractKeywords = (text) => {
-        // 简单的关键词提取，可以后续优化
-        const commonWords = ['的', '了', '在', '是', '有', '和', '与', '或', '但', '而', '这', '那', '一个', '一些', '各种', '不同', '重要', '主要', '基本', '一般', '通常', '经常', '总是', '从不', '已经', '正在', '将要', '可能', '应该', '必须', '可以', '能够', '需要', '想要', '希望', '认为', '觉得', '知道', '了解', '理解', '明白', '清楚', '明显', '显然', '当然', '自然', '当然', '确实', '真的', '非常', '很', '特别', '尤其', '更加', '比较', '相当', '十分', '完全', '全部', '所有', '每个', '任何', '一些', '许多', '大量', '少数', '多数', '大部分', '小部分', '一半', '全部', '整个', '部分', '方面', '角度', '观点', '看法', '意见', '想法', '建议', '方法', '方式', '手段', '途径', '渠道', '来源', '原因', '结果', '影响', '作用', '功能', '特点', '特征', '性质', '本质', '实质', '内容', '形式', '结构', '组织', '系统', '体系', '框架', '模式', '类型', '种类', '分类', '等级', '层次', '阶段', '步骤', '过程', '程序', '流程', '顺序', '排列', '组合', '联系', '关系', '关联', '连接', '结合', '融合', '整合', '统一', '协调', '配合', '合作', '协作', '共同', '一起', '同时', '先后', '前后', '左右', '上下', '内外', '中间', '中心', '核心', '重点', '关键', '主要', '次要', '重要', '必要', '必须', '需要', '要求', '条件', '前提', '基础', '根本', '基本', '主要', '核心', '关键', '重要', '必要', '必须', '需要', '要求', '条件', '前提', '基础', '根本', '基本'];
-        const words = text.split(/[\s\n\r\t，。！？；：""''（）【】《》〈〉、]/)
-            .filter(word => word.length > 1 && !commonWords.includes(word))
-            .slice(0, 5);
-        return [...new Set(words)];
-    };
+  // --- 时间线和按钮相关的 State 和处理函数 (这部分保持不变) ---
+  const [timelineItems, setTimelineItems] = useState([]);
+  useEffect(() => {
+    if (data && data.timeline) {
+      const itemsWithId = data.timeline.map((item, index) => ({ ...item, id: `timeline-${index}-${Math.random()}` }));
+      setTimelineItems(itemsWithId);
+    }
+  }, [data]);
+  const handleTimelineChange = (id, field, value) => { setTimelineItems(items => items.map(item => item.id === id ? { ...item, [field]: value } : item)); };
+  const handleAddTimelineItem = () => { const newItem = { id: `timeline-new-${Date.now()}`, year: '', event: '' }; setTimelineItems(items => [...items, newItem]); };
+  const handleDeleteTimelineItem = (id) => { setTimelineItems(items => items.filter(item => item.id !== id)); };
+  const { message } = AntdApp.useApp();
+  const { confirm } = Modal;
+  const handleSaveNotes = () => { message.success('笔记已保存！(模拟)'); };
+  const handleExport = () => {
+    if (timelineItems.length === 0) {
+      message.warning('没有可导出的时间线内容。');
+      return;
+    }
+    const content = timelineItems.map(item => `${item.year}: ${item.event}`).join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `${data.topic || '未命名主题'}-时间线.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
+    message.success('时间线已导出为 .txt 文件！');
+  };
+  const handleClearTimeline = () => {
+      confirm({
+        title: '您确定要清空所有时间线吗？',
+        icon: <ExclamationCircleFilled />,
+        content: '这个操作无法撤销。',
+        okText: '确认清空',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk() {
+          setTimelineItems([]);
+          message.info('时间线已清空。');
+        },
+      });
+  };
+  // --- 时间线和按钮逻辑结束 ---
 
-    // 生成段落标题
-    const generateChunkTitle = (paragraph) => {
-        const firstSentence = paragraph.split('。')[0];
-        if (firstSentence.length > 30) {
-            return firstSentence.substring(0, 30) + '...';
-        }
-        return firstSentence;
-    };
-
-    const handleToggleOriginal = () => {
-        setIsExpanded(!isExpanded);
-    };
-
-    // 搜索功能
+  // 渲染维基百科分段内容的函数
+  const renderWikiSections = () => {
     const handleSearch = (term) => {
-        setSearchTerm(term);
-        if (!term.trim()) {
-            setHighlightedChunks([]);
+      if (!term.trim() || !contentRef.current) return;
+      const sections = initialFullContent?.content || [];
+      for (let i = 0; i < sections.length; i++) {
+        const section = sections[i];
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = section.html_content || section.text || '';
+        const sectionText = tempDiv.textContent || tempDiv.innerText || '';
+        if (section.title.toLowerCase().includes(term.toLowerCase()) || sectionText.toLowerCase().includes(term.toLowerCase())) {
+          const targetElement = contentRef.current.querySelector(`#wiki-section-${i}`);
+          if (targetElement) {
+            targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            message.success(`已定位到章节：“${section.title}”`);
             return;
+          }
         }
-        
-        const highlighted = contentChunks
-            .map((chunk, index) => ({
-                ...chunk,
-                index,
-                matches: chunk.fullContent.toLowerCase().includes(term.toLowerCase())
-            }))
-            .filter(chunk => chunk.matches);
-        
-        setHighlightedChunks(highlighted);
+      }
+      message.info('未在正文中找到匹配项。');
     };
 
-    // 标记为已读
-    const markAsRead = (chunkIndex) => {
-        setReadChunks(prev => new Set([...prev, chunkIndex]));
-    };
+    if (!initialFullContent || !initialFullContent.content || initialFullContent.content.length === 0) {
+      return <Empty description="暂无维基百科内容" />;
+    }
 
-    // 切换收藏状态
-    const toggleBookmark = (chunkIndex) => {
-        setBookmarkedChunks(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(chunkIndex)) {
-                newSet.delete(chunkIndex);
-            } else {
-                newSet.add(chunkIndex);
-            }
-            return newSet;
-        });
-    };
-
-    // 计算阅读进度
-    const readingProgress = contentChunks.length > 0 ? (readChunks.size / contentChunks.length) * 100 : 0;
-
-    // 切换到下一个未读段落
-    const goToNextUnread = () => {
-        const unreadChunks = contentChunks
-            .map((chunk, index) => ({ chunk, index }))
-            .filter(({ index }) => !readChunks.has(index));
-        
-        if (unreadChunks.length > 0) {
-            setActiveChunk(unreadChunks[0].index);
-        }
-    };
-
-    const handleTimelineChange = (id, field, value) => {
-        setTimelineItems(currentItems =>
-            currentItems.map(item =>
-                item.id === id ? { ...item, [field]: value } : item
-            )
-        );
-    };
-
-    const handleAddTimelineItem = () => {
-        const newItem = {
-            id: `timeline-new-${Date.now()}`,
-            year: '',
-            event: ''
-        };
-        setTimelineItems(currentItems => [...currentItems, newItem]);
-    };
-
-    const handleDeleteTimelineItem = (id) => {
-        setTimelineItems(currentItems => currentItems.filter(item => item.id !== id));
-    };
+    const sections = initialFullContent.content;
     
-    const handleSaveTimeline = () => {
-        message.success('时间线已保存！');
-    };
+    // --- 【核心修复】使用更稳定和正确的算法来构建目录树 ---
+    const buildTree = (list) => {
+      // 1. 初始化所有节点，并添加 key, href, children 属性
+      const nodes = list.map((item, index) => ({
+        ...item,
+        key: `wiki-section-${index}`,
+        href: `#wiki-section-${index}`,
+        title: item.title,
+        children: [],
+      }));
 
-    const handleExportTimeline = () => {
-        if (timelineItems.every(item => !item.year.trim() && !item.event.trim())) {
-            message.warning('没有可导出的时间线内容。');
-            return;
+      const tree = [];
+      const stack = []; // 辅助栈，用来追踪父节点
+
+      nodes.forEach(node => {
+        // 当遇到一个新节点时，将栈中所有层级大于等于当前节点的元素弹出
+        // 这样可以确保栈顶元素永远是当前节点的父节点
+        while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
+          stack.pop();
         }
+        
+        if (stack.length === 0) {
+          // 如果栈为空，说明这是一个根节点
+          tree.push(node);
+        } else {
+          // 否则，栈顶元素就是父节点，将当前节点加入其 children
+          stack[stack.length - 1].children.push(node);
+        }
+        
+        // 将当前节点压入栈
+        stack.push(node);
+      });
 
-        const content = timelineItems
-            .map(item => `${item.year || '未指定年份'}: ${item.event || '未描述事件'}`)
-            .join('\n');
-
-        const fullContent = `关键时间线\n==================\n\n${content.trim()}`;
-
-        const blob = new Blob([fullContent.trim()], { type: 'text/plain;charset=utf-8' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = '关键时间线.txt';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        message.success('时间线已导出为 TXT 文件！');
+      return tree;
     };
-
-    const handleClearTimeline = () => {
-        setTimelineItems([]);
-        message.info('时间线已清空。');
-    };
-
+    const anchorItems = buildTree(sections);
+    // --- 目录树构建结束 ---
 
     return (
-        <Card
-            size="small"
-            bordered
-            style={{ borderStyle: "dashed" }}
-        >
-            <Space direction="vertical" style={{ width: "100%" }}>
-                {/* AI生成的摘要部分 */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                        <div style={{ 
-                            background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f9ff 100%)', 
-                            padding: '16px', 
-                            borderRadius: '8px',
-                            border: '1px solid #bae7ff',
-                            marginBottom: '12px'
-                        }}>
-                            <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px' }}>
-                                🤖 AI智能摘要
-                            </Title>
-                            <Paragraph style={{ margin: 0, fontSize: '14px', lineHeight: '1.6' }}>
-                                {data.summary || "暂无摘要"}
-                            </Paragraph>
-                        </div>
-                    </div>
-                    <Button
-                        type="primary"
-                        size="small"
-                        onClick={handleToggleOriginal}
-                        style={{ marginLeft: 8, flexShrink: 0 }}
-                        icon={<BookOutlined />}
-                    >
-                        {isExpanded ? '收起原文' : '智能阅读'}
-                    </Button>
+      <div style={{ height: '65vh', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: 16, flexShrink: 0 }}>
+          <Input.Search
+            placeholder="在正文中搜索关键词并定位..."
+            onSearch={handleSearch}
+            style={{ flex: 1 }}
+            enterButton
+          />
+          {initialFullContent.url && (
+            <Button
+              type="link"  
+              icon={<LinkOutlined />} 
+              href={initialFullContent.url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
+              在维基百科中查看原文
+            </Button>
+          )}
+        </div>
+        <Row gutter={24} style={{ flex: 1, overflow: 'hidden' }}>
+          <Col span={6} style={{ height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
+            <Anchor
+              items={anchorItems}
+              targetOffset={5}
+              getContainer={() => contentRef.current}
+            />
+          </Col>
+          <Col span={18} style={{ height: '100%', overflowY: 'auto' }}>
+            <div ref={contentRef} style={{ paddingRight: '16px' }}>
+              {sections.map((section, index) => (
+                <div key={index} id={`wiki-section-${index}`} style={{ marginBottom: '24px' }}>
+                  <Title level={4} style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: '8px', textAlign: 'left' }}>
+                    {section.title}
+                  </Title>
+                  <div
+                    style={{ textAlign: 'left', lineHeight: '1.8' }}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(section.html_content || section.text || '') }}
+                  />
                 </div>
-
-                {/* 智能阅读模式 */}
-                {isExpanded && contentChunks.length > 0 && (
-                    <>
-                        <Divider dashed style={{ margin: "8px 0" }} />
-                        
-                        {/* 搜索和导航栏 */}
-                        <div style={{ 
-                            background: '#fafafa', 
-                            padding: '12px', 
-                            borderRadius: '6px',
-                            border: '1px solid #f0f0f0',
-                            marginBottom: '12px'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <Title level={5} style={{ margin: 0, color: '#1890ff' }}>
-                                    📚 智能阅读模式
-                                </Title>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                        共 {contentChunks.length} 个段落
-                                    </Text>
-                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                        已读 {readChunks.size} 个
-                                    </Text>
-                                </div>
-                            </div>
-                            
-                            {/* 阅读进度条 */}
-                            <div style={{ marginBottom: '12px' }}>
-                                <div style={{ 
-                                    display: 'flex', 
-                                    justifyContent: 'space-between', 
-                                    alignItems: 'center',
-                                    marginBottom: '4px'
-                                }}>
-                                    <Text type="secondary" style={{ fontSize: '12px' }}>阅读进度</Text>
-                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                        {Math.round(readingProgress)}%
-                                    </Text>
-                                </div>
-                                <div style={{ 
-                                    background: '#e8e8e8', 
-                                    borderRadius: '4px', 
-                                    height: '6px',
-                                    overflow: 'hidden'
-                                }}>
-                                    <div style={{ 
-                                        background: 'linear-gradient(90deg, #52c41a 0%, #73d13d 100%)', 
-                                        height: '100%', 
-                                        width: `${readingProgress}%`,
-                                        transition: 'width 0.3s ease'
-                                    }} />
-                                </div>
-                            </div>
-                            
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                <Input.Search
-                                    placeholder="搜索关键词..."
-                                    value={searchTerm}
-                                    onChange={(e) => handleSearch(e.target.value)}
-                                    style={{ flex: 1, minWidth: '200px' }}
-                                    size="small"
-                                />
-                                <Button 
-                                    size="small" 
-                                    onClick={() => setActiveChunk(Math.max(0, activeChunk - 1))}
-                                    disabled={activeChunk === 0}
-                                >
-                                    上一段
-                                </Button>
-                                <Button 
-                                    size="small" 
-                                    onClick={() => setActiveChunk(Math.min(contentChunks.length - 1, activeChunk + 1))}
-                                    disabled={activeChunk === contentChunks.length - 1}
-                                >
-                                    下一段
-                                </Button>
-                                <Button 
-                                    size="small" 
-                                    onClick={goToNextUnread}
-                                    disabled={readChunks.size === contentChunks.length}
-                                    type="dashed"
-                                >
-                                    下一个未读
-                                </Button>
-                                <Button 
-                                    size="small" 
-                                    onClick={() => setReadingMode(readingMode === 'chunked' ? 'full' : 'chunked')}
-                                    type="text"
-                                >
-                                    {readingMode === 'chunked' ? '全文模式' : '分段模式'}
-                                </Button>
-                            </div>
-                            
-                            {/* 搜索结果显示 */}
-                            {highlightedChunks.length > 0 && (
-                                <div style={{ marginTop: '8px' }}>
-                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                        找到 {highlightedChunks.length} 个匹配段落
-                                    </Text>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* 内容展示区域 */}
-                        <div style={{
-                            backgroundColor: '#f8f9fa', 
-                            padding: '16px', 
-                            borderRadius: '8px',
-                            border: '1px solid #e9ecef', 
-                            maxHeight: '500px', 
-                            overflowY: 'auto'
-                        }}>
-                            <Title level={5} style={{ marginTop: 0, marginBottom: 12, color: '#1890ff' }}>
-                                {fullContent?.title || '维基百科内容'}
-                            </Title>
-                            
-                            {/* 段落导航 */}
-                            <div style={{ 
-                                display: 'flex', 
-                                flexWrap: 'wrap', 
-                                gap: '4px', 
-                                marginBottom: '16px',
-                                padding: '8px',
-                                background: '#fff',
-                                borderRadius: '4px',
-                                border: '1px solid #e8e8e8'
-                            }}>
-                                {contentChunks.map((chunk, index) => {
-                                    const isRead = readChunks.has(index);
-                                    const isBookmarked = bookmarkedChunks.has(index);
-                                    const isActive = index === activeChunk;
-                                    
-                                    return (
-                                        <Button
-                                            key={chunk.id}
-                                            size="small"
-                                            type={isActive ? 'primary' : 'default'}
-                                            onClick={() => setActiveChunk(index)}
-                                            style={{ 
-                                                fontSize: '11px',
-                                                height: '24px',
-                                                padding: '0 8px',
-                                                position: 'relative',
-                                                opacity: isRead ? 0.7 : 1,
-                                                border: isBookmarked ? '2px solid #faad14' : undefined
-                                            }}
-                                        >
-                                            <span style={{ 
-                                                textDecoration: isRead ? 'line-through' : 'none',
-                                                color: isRead ? '#8c8c8c' : undefined
-                                            }}>
-                                                {index + 1}. {chunk.title}
-                                            </span>
-                                            {isBookmarked && (
-                                                <span style={{ marginLeft: '4px' }}>⭐</span>
-                                            )}
-                                        </Button>
-                                    );
-                                })}
-                            </div>
-
-                            {/* 当前段落内容 */}
-                            <div style={{ marginBottom: '16px' }}>
-                                <div style={{ 
-                                    display: 'flex', 
-                                    justifyContent: 'space-between', 
-                                    alignItems: 'center',
-                                    marginBottom: '8px'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Text strong style={{ color: '#1890ff' }}>
-                                            第 {activeChunk + 1} 段：{contentChunks[activeChunk]?.title}
-                                        </Text>
-                                        {readChunks.has(activeChunk) && (
-                                            <Tag color="green" size="small">已读</Tag>
-                                        )}
-                                        {bookmarkedChunks.has(activeChunk) && (
-                                            <Tag color="gold" size="small">⭐ 已收藏</Tag>
-                                        )}
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Text type="secondary" style={{ fontSize: '12px' }}>
-                                            {contentChunks[activeChunk]?.wordCount} 字
-                                        </Text>
-                                        <Button
-                                            size="small"
-                                            type={readChunks.has(activeChunk) ? 'default' : 'primary'}
-                                            onClick={() => markAsRead(activeChunk)}
-                                            style={{ fontSize: '11px' }}
-                                        >
-                                            {readChunks.has(activeChunk) ? '✓ 已读' : '标记已读'}
-                                        </Button>
-                                        <Button
-                                            size="small"
-                                            type={bookmarkedChunks.has(activeChunk) ? 'primary' : 'default'}
-                                            onClick={() => toggleBookmark(activeChunk)}
-                                            style={{ fontSize: '11px' }}
-                                        >
-                                            {bookmarkedChunks.has(activeChunk) ? '⭐ 已收藏' : '⭐ 收藏'}
-                                        </Button>
-                                    </div>
-                                </div>
-                                
-                                <div style={{ 
-                                    whiteSpace: 'pre-wrap', 
-                                    fontSize: '14px', 
-                                    lineHeight: '1.7', 
-                                    color: '#2c3e50',
-                                    background: '#fff',
-                                    padding: '12px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #e8e8e8',
-                                    position: 'relative'
-                                }}>
-                                    {contentChunks[activeChunk]?.fullContent}
-                                    
-                                    {/* 阅读完成提示 */}
-                                    {!readChunks.has(activeChunk) && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '8px',
-                                            right: '8px',
-                                            background: '#fff7e6',
-                                            padding: '4px 8px',
-                                            borderRadius: '4px',
-                                            border: '1px solid #ffd591',
-                                            fontSize: '11px',
-                                            color: '#d46b08'
-                                        }}>
-                                            点击"标记已读"完成此段
-                                        </div>
-                                    )}
-                                </div>
-                                
-                                {/* 关键词标签 */}
-                                {contentChunks[activeChunk]?.keywords?.length > 0 && (
-                                    <div style={{ marginTop: '8px' }}>
-                                        <Text type="secondary" style={{ fontSize: '12px', marginRight: '8px' }}>关键词：</Text>
-                                        {contentChunks[activeChunk].keywords.map((keyword, idx) => (
-                                            <Tag key={idx} size="small" color="blue" style={{ margin: '2px' }}>
-                                                {keyword}
-                                            </Tag>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* 原始链接 */}
-                            {fullContent?.url && (
-                                <div style={{ 
-                                    textAlign: 'right', 
-                                    paddingTop: '12px',
-                                    borderTop: '1px solid #e8e8e8'
-                                }}>
-                                    <a 
-                                        href={fullContent.url} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        style={{ 
-                                            color: '#1890ff',
-                                            textDecoration: 'none',
-                                            fontSize: '12px'
-                                        }}
-                                    >
-                                        🔗 在维基百科中查看完整页面
-                                    </a>
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
-
-                {/* 传统阅读模式（备用） */}
-                {isExpanded && contentChunks.length === 0 && fullContent && (
-                    <>
-                        <Divider dashed style={{ margin: "8px 0" }} />
-                        <div style={{
-                            backgroundColor: '#f8f9fa', padding: '12px', borderRadius: '6px',
-                            border: '1px solid #e9ecef', maxHeight: '400px', overflowY: 'auto'
-                        }}>
-                            <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>{fullContent.title}</Title>
-                            <div style={{ whiteSpace: 'pre-wrap', fontSize: '13px', lineHeight: '1.6', color: '#495057' }}>
-                                {fullContent.content}
-                            </div>
-                            {fullContent.url && (
-                                <div style={{ marginTop: 8, textAlign: 'right' }}>
-                                    <a href={fullContent.url} target="_blank" rel="noopener noreferrer">在维基百科中查看完整页面</a>
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
-
-                <Divider dashed style={{ margin: "8px 0" }} />
-
-                <Text type="secondary">关键时间线</Text>
-                <div style={{ border: '1px solid #f0f0f0', borderRadius: '8px', padding: '12px' }}>
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                        {timelineItems.length > 0 ? (
-                            timelineItems.map(item => (
-                                <EditableTimelineItem
-                                    key={item.id}
-                                    item={item}
-                                    onChange={handleTimelineChange}
-                                    onDelete={handleDeleteTimelineItem}
-                                />
-                            ))
-                        ) : (
-                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无时间线，请点击下方按钮添加" />
-                        )}
-                        <Button
-                            type="dashed"
-                            onClick={handleAddTimelineItem}
-                            block
-                            icon={<PlusOutlined />}
-                            style={{ marginTop: 8 }}
-                        >
-                            添加时间点
-                        </Button>
-                        <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-start', paddingTop: '12px', borderTop: '1px solid #f0f0f0', marginTop: '12px' }}>
-                            <Space>
-                                <Button type="primary" size="small" onClick={handleSaveTimeline}>保存</Button>
-                                <Button size="small" onClick={handleExportTimeline}>导出</Button>
-                                <Button size="small" onClick={handleClearTimeline}>清空</Button>
-                            </Space>
-                        </div>
-                    </Space>
-                </div>
-            </Space>
-        </Card>
+              ))}
+            </div>
+          </Col>
+        </Row>
+      </div>
     );
+  };
+  
+  return (
+    <Card size="small" bordered style={{ borderStyle: "dashed" }}>
+      <Space direction="vertical" style={{ width: "100%" }}>
+        {/* AI摘要部分 (保持不变) */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', textAlign:'left' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ 
+              background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f9ff 100%)', 
+              padding: '16px', 
+              borderRadius: '8px',
+              border: '1px solid #bae7ff',
+              marginBottom: '12px'
+            }}>
+              <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px', textAlign: 'left' }}>
+                🤖 AI智能摘要
+              </Title>
+              <Paragraph style={{ margin: 0, fontSize: '14px', lineHeight: '1.6' }}>
+                {summary || "暂无摘要"}
+              </Paragraph>
+            </div>
+          </div>
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => setIsExpanded(!isExpanded)}
+            style={{ marginLeft: 8, flexShrink: 0 }}
+            icon={<BookOutlined />}
+          >
+            {isExpanded ? '收起原文' : '智能阅读'}
+          </Button>
+        </div>
+        
+        {isExpanded && (
+          <>
+            <Divider dashed style={{ margin: "8px 0" }} />
+            {renderWikiSections()}
+          </>
+        )}
+        
+        {/* 时间线部分 (保持不变) */}
+        <Divider dashed style={{ margin: "8px 0" }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text strong>关键时间线</Text>
+          <Space>
+            <Button icon={<SaveOutlined />} size="small" onClick={handleSaveNotes}>保存</Button>
+            <Button icon={<DownloadOutlined />} size="small" onClick={handleExport}>导出</Button>
+            <Button icon={<ClearOutlined />} size="small" danger onClick={handleClearTimeline}>
+              清空
+            </Button>
+          </Space>
+        </div>
+        <div style={{ border: '1px solid #f0f0f0', borderRadius: '8px', padding: '12px' }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+                {timelineItems.length > 0 ? (
+                    timelineItems.map(item => (
+                        <EditableTimelineItem
+                            key={item.id}
+                            item={item}
+                            onChange={handleTimelineChange}
+                            onDelete={handleDeleteTimelineItem}
+                        />
+                    ))
+                ) : (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="AI未能生成时间线，或您可以手动添加" />
+                )}
+                <Button
+                    type="dashed"
+                    onClick={handleAddTimelineItem}
+                    block
+                    icon={<PlusOutlined />}
+                    style={{ marginTop: 8 }}
+                >
+                    添加时间点
+                </Button>
+            </Space>
+        </div>
+
+      </Space>
+
+      <Popover
+        content={<div style={{ maxWidth: 400 }}>{popover.content}</div>}
+        open={popover.visible}
+        getPopupContainer={() => document.body} 
+      >
+        {popover.target && (
+          <div style={{
+            position: 'fixed',
+            left: popover.target.getBoundingClientRect().left,
+            top: popover.target.getBoundingClientRect().top,
+            width: popover.target.getBoundingClientRect().width,
+            height: popover.target.getBoundingClientRect().height,
+            pointerEvents: 'none',
+          }}/>
+        )}
+      </Popover>
+    </Card>
+  );
 }
+
 
 // --- 核心修改：调整 FactionRolesDisplay 组件的样式 ---
 function FactionRolesDisplay({ rolesData }) {
@@ -1253,10 +1044,12 @@ function FactionRolesDisplay({ rolesData }) {
 
     return (
         <div style={{ marginBottom: 16 }}>
-            <Text strong>不同阵营在此事件中的作用分析</Text>
+            <div style={{ textAlign: 'left' }}>
+              <Text strong>不同阵营在此事件中的作用分析</Text>
+            </div>
             <div style={{ marginTop: 8 }}>
                 {rolesData.map(faction => (
-                    <div key={faction.faction_name} style={{ backgroundColor: '#fafafa', padding: '12px', borderRadius: '6px', marginBottom: '12px' }}>
+                    <div key={faction.faction_name} style={{ backgroundColor: '#fafafa', padding: '12px', borderRadius: '6px', marginBottom: '12px',textAlign: 'left' }}>
                         <Text strong>{faction.faction_name}</Text>
                         <div style={{ marginTop: '8px' }}>
                             {faction.roles.map(role => (
@@ -1314,7 +1107,7 @@ function ViewpointAnalysis({ data, topic }) {
     };
 
     return (
-      <Card size="small" bordered style={{ borderStyle: "dashed" }}>
+      <Card size="small" bordered style={{ borderStyle: "dashed", textAlign:'left' }}>
         <Space direction="vertical" style={{ width: "100%" }}>
           <FactionRolesDisplay rolesData={data.faction_roles} />
 
@@ -1395,9 +1188,10 @@ function ViewpointAnalysis({ data, topic }) {
                 backgroundColor: '#f0f9ff', 
                 padding: '12px', 
                 borderRadius: '6px',
-                border: '1px solid #bae7ff'
+                border: '1px solid #bae7ff',
+                textAlign:'left'
               }}>
-                <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#1890ff' }}>
+                <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#1890ff', textAlign:'left'}}>
                   关于"{selectedDebate}"的详细观点分析（基于维基讨论页）
                 </Title>
                 <List
@@ -1465,7 +1259,9 @@ function SourcesComparisonCard({ data }) {
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text strong>多史料片段对读</Text>
+          <div style={{ textAlign: 'left' }}>
+            <Text strong>多史料片段对读</Text>
+          </div>
           <Button
             type="link"
             size="small"
@@ -1491,12 +1287,12 @@ function SourcesComparisonCard({ data }) {
               itemLayout="vertical"
               dataSource={references}
               renderItem={(item, index) => (
-                <List.Item key={index} style={{padding: '8px 0'}}>
+                <List.Item key={index} style={{padding: '8px 0', textAlign: 'left'}}>
                   <List.Item.Meta
                     title={<a href={item.url} target="_blank" rel="noopener noreferrer" style={{fontSize: '13px'}}>{item.title || item.url}</a>}
                     description={`来源: ${getHostname(item.url)}`}
                   />
-                  <Paragraph style={{fontSize: '12px', margin: 0}}>
+                  <Paragraph style={{fontSize: '12px', margin: 0, textAlign: 'left'}}>
                     {item.content ? `${item.content.substring(0, 150)}...` : (item.message || '内容抓取失败或为空。')}
                   </Paragraph>
                 </List.Item>
@@ -1511,19 +1307,19 @@ function SourcesComparisonCard({ data }) {
           <Empty description="未能找到可供对比的史料" />
         ) : (
           sources.map((source, index) => (
-            <div key={index}>
-              <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+            <div key={index} style={{ textAlign: 'left' }}>
+              <Title level={5} style={{ marginTop: 0, marginBottom: 8, textAlign: 'left' }}>
                 史料{index + 1}：{source.title}
               </Title>
-              <Paragraph type="secondary" style={{ marginBottom: 8, fontSize: '12px' }}>
+              <Paragraph type="secondary" style={{ marginBottom: 8, fontSize: '12px', textAlign: 'left'}}>
                 视角：{source.viewpoint}
               </Paragraph>
-              <div style={{ padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 6, backgroundColor: '#fafafa' }}>
+              <div style={{ padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 6, backgroundColor: '#fafafa',textAlign: 'left' }}>
                 <Paragraph style={{ marginBottom: 0 }}>
                   {source.snippet}
                 </Paragraph>
               </div>
-              <a href={source.url} target="_blank" rel="noopener noreferrer" style={{fontSize: '12px', marginTop: '4px', display: 'inline-block'}}>
+              <a href={source.url} target="_blank" rel="noopener noreferrer" style={{fontSize: '12px', marginTop: '4px', display: 'inline-block' }}>
                 查看原始链接
               </a>
             </div>
@@ -1986,16 +1782,6 @@ function NotesWorkspace({
 
   const items = [
     {
-      key: 'note',
-      label: (
-        <Space>
-          <EditOutlined />
-          自由笔记
-        </Space>
-      ),
-      children: <FreeNote noteContent={noteContent} setNoteContent={setNoteContent} />,
-    },
-    {
       key: 'causality',
       label: (
         <Space>
@@ -2041,29 +1827,8 @@ function NotesWorkspace({
       <Title level={5} style={{ marginBottom: 0 }}>
         笔记工作区
       </Title>
-      <Text type="secondary">支持自由笔记、历史批判思维训练、论证图谱</Text>
+      <Text type="secondary">支持历史批判思维训练、论证图谱</Text>
       <Tabs defaultActiveKey="note" items={items} />
-    </Space>
-  );
-}
-
-function FreeNote({ noteContent, setNoteContent }) {
-  const { message } = AntdApp.useApp();
-  
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <TextArea
-        rows={12}
-        placeholder="随手记录要点、证据与疑问……"
-        value={noteContent}
-        onChange={(e) => setNoteContent(e.target.value)}
-      />
-      <Space>
-        <Button type="primary" onClick={() => message.success('已保存到本地（示例）')}>
-          保存
-        </Button>
-        <Button onClick={() => setNoteContent('')}>清空</Button>
-      </Space>
     </Space>
   );
 }
