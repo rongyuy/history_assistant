@@ -42,7 +42,7 @@ import {
   LinkOutlined,
   UpOutlined, DownOutlined,
 } from '@ant-design/icons';
-import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiFullContent, getDiscussionDetails } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails } from '../api';
 import ArgumentMap from '../ArgumentMap'
 import DOMPurify from 'dompurify'
 
@@ -140,7 +140,7 @@ export default function InquiryPage() {
             placeholder="请输入您想探究的历史主题"
             allowClear
           />
-          <Button type="primary" onClick={handleSearch} style={{ marginLeft: 8 }}>开始探险</Button>
+          <Button type="primary" onClick={handleSearch} style={{ marginLeft: 8 }}>开始探索</Button>
           <Button onClick={handleClear} style={{ marginLeft: 8 }}>清空</Button>
         </Header>
 
@@ -214,9 +214,9 @@ function WelcomePage() {
                 imageStyle={{ height: 80 }}
                 description={
                     <>
-                        <Title level={3}>🏛️ 历史探险家工作室</Title>
+                        <Title level={3}>🏛️ 历史探索者工作室</Title>
                         <Paragraph type="secondary" style={{ fontSize: '16px', marginBottom: '24px' }}>
-                            欢迎，未来的历史探险家！你将接受来自历史研究院的任务，通过四个维度的深度探索，完成一份完整的历史调查报告。
+                            欢迎，未来的历史探索者！你将接受来自历史研究院的任务，通过四个维度的深度探索，完成一份完整的历史调查报告。
                         </Paragraph>
                         <div style={{ 
                             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
@@ -241,7 +241,7 @@ function WelcomePage() {
                             </Paragraph>
                         </div>
                         <Paragraph type="secondary">
-                            请在上方输入您感兴趣的历史主题（例如："西安事变"），然后点击"开始探险"按钮，开启您的历史调查之旅。
+                            请在上方输入您感兴趣的历史主题（例如："西安事变"），然后点击"开始探索"按钮，开启您的历史调查之旅。
                         </Paragraph>
                     </>
                 }
@@ -263,13 +263,20 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     wikiSummary: { summary: '', timeline: [] },
     viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
     sources: { sources: [] },
-    wikiFullContent: null,
   });
 
+  // 【新增】将原文内容、加载状态、和AI上下文提升到这里管理
+  const [fullHtmlContent, setFullHtmlContent] = useState('');
+  const [isFullContentLoading, setIsFullContentLoading] = useState(false);
+  const [aiContext, setAiContext] = useState(''); // AI上下文
   const [isChatOpen, setChatOpen] = useState(false);
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
-  const [aiContext, setAiContext] = useState('');
   const [chatValue, setChatValue] = useState('');
+  // 【【【 核心修改：在这里添加所有缺失的 state 】】】
+  const [activeModule, setActiveModule] = useState(null);
+  const [showChatDrawer, setShowChatDrawer] = useState(false);
+  const [initialAiPrompt, setInitialAiPrompt] = useState('');
+  const [chatTaskType, setChatTaskType] = useState('');
 
   // 任务进度状态现在从父组件传入
 
@@ -348,11 +355,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       }).finally(() => {
         setLoadingStates(prev => ({ ...prev, summary: false }));
       });
-      
-      getWikiFullContent(topic).then(res => {
-        setCoreData(prev => ({ ...prev, wikiFullContent: res.data }));
-        setAiContext(`维基百科正文内容:\n${res.data.content}`);
-      }).catch(err => console.error("维基全文加载失败:", err));
 
       getViewpointAnalysis(topic).then(res => {
         setCoreData(prev => ({ ...prev, viewpoints: res.data }));
@@ -393,7 +395,38 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     fetchData();
   }, [topic, message]);
 
-  const handleActivateModule = (moduleName) => {
+  // 【新增】一个统一的函数来获取原文，它会自动处理缓存
+  const ensureFullContentFetched = async () => {
+    if (fullHtmlContent && fullHtmlContent.content) { // 修改判断条件
+      return fullHtmlContent; // 如果已缓存，直接返回
+    }
+    if (isFullContentLoading) {
+      message.info("正在加载原文，请稍候...");
+      return;
+    }
+
+    setIsFullContentLoading(true);
+    try {
+      const res = await getWikiHtmlContent(topic);
+      // 直接检查返回的数据中是否有 content 数组
+      if (res.data && res.data.content) {
+        setFullHtmlContent(res.data); // 将整个返回的对象存入 state
+        return res.data;
+      } else {
+        // 如果没有 content，说明可能出错了或页面不存在
+        throw new Error('返回的数据格式不正确或内容为空');
+      }
+    } catch (error) {
+      console.error("加载维基百科内容失败:", error);
+      message.error('加载原文失败');
+      setFullHtmlContent({ content: [] }); // 设置为空内容，避免渲染出错
+      return null; // 加载失败
+    } finally {
+      setIsFullContentLoading(false);
+    }
+  };
+
+  const handleActivateModule = async (moduleName) => {
     setCurrentModule(moduleName);
     setChatOpen(true);
     
@@ -401,12 +434,32 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     let taskType = '';
     let context = '';
     let aiPrompt = '';
+    // 如果当前没有激活的模块，或者点击的是已激活的模块，则什么都不做
+    if (activeModule === moduleName) {
+        // 可以选择收起或保持不变
+        // setActiveModule(null);
+        return;
+    }
+    setActiveModule(moduleName);
     
     switch (moduleName) {
       case '任务一：史实认知':
         taskType = '史实认知';
-        context = `维基百科正文内容:\n${coreData.wikiFullContent?.content || ''}`;
-        aiPrompt = '你现在正在指导学生完成"史实认知"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生建立历史事件的基本框架，包括时间线、关键人物、主要事件等。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
+        // 【重要】在激活任务时，确保获取到完整原文
+        const htmlContent = await ensureFullContentFetched();
+        if (htmlContent && htmlContent.content) {
+          // 【核心修改】从 fullContentObject.content 中提取纯文本
+          const plainText = htmlContent.content.map(section => {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = DOMPurify.sanitize(section.html_content || '');
+            return `${section.title}\n${tempDiv.textContent || tempDiv.innerText || ''}`;
+          }).join('\n\n');
+          context = `维基百科正文内容:\n${plainText}`;
+          aiPrompt = '你现在正在指导学生完成"史实认知"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生建立历史事件的基本框架，包括时间线、关键人物、主要事件等。当学生完成学习后，请询问他们是否已经理解并准备好进入下一个任务。';
+        } else {
+          context = `维基百科摘要:\n${coreData.wikiSummary?.summary || ''}`;
+          aiPrompt = '由于原文加载失败，我们先基于摘要进行学习。请根据以上摘要，提出你的第一个问题。';
+        }
         break;
       case '任务二：观点辨析':
         taskType = '观点辨析';
@@ -418,16 +471,15 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n---\n\n')}`;
         aiPrompt = '你现在正在指导学生完成"史料分析"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生对比多方史料证据，学会史料批判。当学生完成学习后，请引导他们进入笔记工作区进行历史批判思维训练。';
         break;
-      case '任务四：历史批判思维训练':
-        taskType = '历史批判思维训练';
-        context = '用户正在进行历史批判思维训练阶段，需要形成独特的历史视角。';
-        aiPrompt = '你现在正在指导学生完成"历史批判思维训练"任务。请利用苏格拉底教育法，通过深度提问帮助学生：1) 形成对历史事件的独特视角和判断；2) 培养历史批判思维能力；3) 学会从多个角度分析历史问题；4) 形成自己的历史观点并为之辩护。请通过连续的问题引导学生深入思考，最终帮助他们完成一份具有历史批判思维的历史调查报告。';
-        break;
       default:
         context = '';
         aiPrompt = '';
     }
-    
+    // 更新AI上下文和聊天窗口状态
+    setAiContext(context); 
+    setShowChatDrawer(true);
+    setInitialAiPrompt(aiPrompt); 
+    setChatTaskType(taskType);
     // 如果任务已完成，显示完成状态
     if (questProgress.moduleStates[taskType] === 'completed') {
       message.info(`✅ 【${moduleName}】已完成！你可以继续学习或进入下一个任务。`);
@@ -476,10 +528,10 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   // 检查是否完成所有任务
   useEffect(() => {
     if (questProgress.completedModules.length === questProgress.totalTasks) {
-      message.success('🎉 恭喜！你已完成所有探险任务！现在可以生成最终的历史调查报告了！');
+      message.success('🎉 恭喜！你已完成所有探索任务！现在可以生成最终的历史调查报告了！');
       setQuestProgress(prev => ({
         ...prev,
-        achievements: [...prev.achievements, '历史探险家大师']
+        achievements: [...prev.achievements, '历史探索大师']
       }));
     }
   }, [questProgress.completedModules.length, questProgress.totalTasks, message]);
@@ -528,10 +580,14 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                       <Spin tip="AI正在生成摘要与时间线..." />
                     </div>
                   ) : (
+                    // 【修改】将原文相关的 state 和函数传递下去
                     <WikiSummaryCard 
                       data={coreData.wikiSummary} 
-                      initialFullContent={coreData.wikiFullContent} 
-                      setTopic={setTopic} 
+                      setTopic={setTopic}
+                      topic={topic}
+                      fullHtmlContent={fullHtmlContent}
+                      isFullContentLoading={isFullContentLoading}
+                      ensureFullContentFetched={ensureFullContentFetched}
                     />
                   )
                 ),
@@ -613,7 +669,7 @@ function QuestProgress({ questProgress }) {
       minWidth: '200px'
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-        <Text strong style={{ color: 'white' }}>探险进度</Text>
+        <Text strong style={{ color: 'white' }}>探索进度</Text>
         <Text style={{ color: 'white' }}>{completedModules.length}/{totalTasks}</Text>
       </div>
       <div style={{ 
@@ -709,130 +765,7 @@ function EditableTimelineItem({ item, onChange, onDelete }) {
   );
 }
 
-function WikiSections({
-  initialFullContent,
-  contentRef,
-  onMenuClick,
-  menuOpenKeys,
-  onOpenChange,
-  handleLinkClick,
-  handleLinkMouseOver,
-  handleLinkMouseOut,
-  isExpanded,
-}) {
-  useEffect(() => {
-    if (menuItems) {
-      const topLevelKeys = menuItems.map(item => item.key);
-      onOpenChange(topLevelKeys); // 调用从父组件传来的函数来展开目录
-    }
-  }, [initialFullContent]); // 当内容变化时，重新计算并展开目录
-
-  useEffect(() => {
-    const contentElement = contentRef.current;
-    
-    // 因为只有 isExpanded 为 true 时本组件才会渲染，所以这里的判断可以简化
-    if (contentElement) {
-      contentElement.addEventListener('click', handleLinkClick);
-      contentElement.addEventListener('mouseover', handleLinkMouseOver);
-      contentElement.addEventListener('mouseout', handleLinkMouseOut);
-      
-      return () => {
-        if (contentElement) {
-            contentElement.removeEventListener('click', handleLinkClick);
-            contentElement.removeEventListener('mouseover', handleLinkMouseOver);
-            contentElement.removeEventListener('mouseout', handleLinkMouseOut);
-        }
-      };
-    }
-  // 依赖数组中也不再需要 isExpanded
-  }, [initialFullContent, contentRef, handleLinkClick, handleLinkMouseOver, handleLinkMouseOut]);
-
-  if (!initialFullContent || !initialFullContent.content || initialFullContent.content.length === 0) {
-    return <Empty description="暂无维基百科内容" />;
-  }
-
-  const sections = initialFullContent.content;
-
-  const buildTree = (list) => {
-    const nodes = list.map((item, index) => {
-      const key = `wiki-section-${index}`;
-      return {
-        ...item,
-        // 将 label 从纯文本变成一个带有 onClick 事件的 div
-        label: (
-          <div onClick={() => onMenuClick({ key: key })}>
-            {item.title}
-          </div>
-        ),
-        key: key,
-        children: [],
-      };
-    });
-    const tree = [];
-    const stack = [];
-    nodes.forEach(node => {
-      while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
-        stack.pop();
-      }
-      if (stack.length === 0) {
-        tree.push(node);
-      } else {
-        stack[stack.length - 1].children.push(node);
-      }
-      stack.push(node);
-    });
-
-    const cleanChildren = (nodes) => {
-      return nodes.map(node => {
-        if (node.children && node.children.length > 0) {
-          node.children = cleanChildren(node.children);
-        } else {
-          delete node.children;
-        }
-        return node;
-      });
-    };
-    return cleanChildren(tree);
-  };
-
-  const menuItems = buildTree(sections);
-
-  return (
-    <Row gutter={24} style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-      <Col span={6} style={{ height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
-        <Menu
-          mode="inline"
-          items={menuItems}
-          //onClick={onMenuClick}
-          onOpenChange={onOpenChange}
-          openKeys={menuOpenKeys}
-          style={{ border: 'none', paddingLeft: 0, textAlign: 'left', background: 'transparent' }}
-          expandIcon={<DownOutlined />}
-        />
-      </Col>
-      <Col span={18} style={{ height: '100%' }}>
-        <div
-          ref={contentRef}
-          style={{ padding: '0 16px', height: '100%', overflowY: 'auto', scrollBehavior: 'smooth' }}
-        >
-          {sections.map((section, index) => (
-            <div key={index} id={`wiki-section-${index}`} style={{ marginBottom: '24px' }}>
-              <Title level={4} style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: '8px', textAlign: 'left' }}>
-                {section.title}
-              </Title>
-              <div
-                style={{ textAlign: 'left', lineHeight: '1.8' }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(section.html_content || section.text || '') }}
-              />
-            </div>
-          ))}
-        </div>
-      </Col>
-    </Row>
-  );
-}
-
-function WikiSummaryCard({ data, initialFullContent, setTopic }) {
+function WikiSummaryCard({ data, topic, setTopic, fullHtmlContent, isFullContentLoading, ensureFullContentFetched }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef(null);
   const { message } = AntdApp.useApp();
@@ -846,32 +779,67 @@ function WikiSummaryCard({ data, initialFullContent, setTopic }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(-1);
-  
-  // --- 菜单 State ---
+
+  // --- 目录 State ---
   const [menuOpenKeys, setMenuOpenKeys] = useState([]);
-  // 悬浮窗 & 超链接
+
+  // 展开/收起原文
+  const toggleExpand = async () => {
+    const nextState = !isExpanded;
+    setIsExpanded(nextState);
+
+    if (nextState) {
+      const content = await ensureFullContentFetched();
+      // 自动展开所有顶级目录
+      if (content && content.content) {
+        const topLevelKeys = content.content
+          .map((_, index) => `wiki-section-${index}`)
+          .filter((_, index) => content.content[index].level === 1);
+        setMenuOpenKeys(topLevelKeys);
+      }
+    }
+  };
+
+  // --- 交互功能 ---
+
+  // 2. 悬浮窗功能
   const handleLinkMouseOver = useCallback(async (e) => {
     const target = e.target.closest('a[href^="/wiki/"]');
     if (!target) return;
-    const term = target.getAttribute('href')?.replace('/wiki/', '');
-    if (!term) return;
+    
+    // 立即显示下划线
+    target.style.textDecoration = 'underline';
+
+    const term = decodeURIComponent(target.getAttribute('href').substring(6)).replace(/_/g, ' ');
+    if (!term || term.includes(':')) return;
+
     const rect = target.getBoundingClientRect();
-    setPopover({ visible: true, content: <Spin size="small" />, x: rect.left, y: rect.bottom + 5 });
+    
+    const showPopover = (content) => {
+      setPopover({ visible: true, content, x: rect.left, y: rect.bottom + 5 });
+    };
+
     if (summaryCache.has(term)) {
-      setPopover(prev => ({ ...prev, content: summaryCache.get(term) }));
+      showPopover(summaryCache.get(term));
       return;
     }
+    
+    showPopover(<Spin size="small" />);
     try {
-      const res = await getWikiData(decodeURIComponent(term));
-      const summaryText = res.data.summary;
+      const res = await getWikiData(term);
+      const summaryText = res.data.summary || '暂无摘要';
       summaryCache.set(term, summaryText);
-      setPopover(prev => ({ ...prev, content: summaryText }));
+      showPopover(summaryText);
     } catch (error) {
-      setPopover(prev => ({ ...prev, content: '摘要加载失败' }));
+      const errorText = '摘要加载失败';
+      summaryCache.set(term, errorText);
+      showPopover(errorText);
     }
   }, [summaryCache]);
 
-  const handleLinkMouseOut = useCallback(() => {
+  const handleLinkMouseOut = useCallback((e) => {
+    const target = e.target.closest('a');
+    if(target) target.style.textDecoration = 'none';
     setPopover({ visible: false, content: '', x: 0, y: 0 });
   }, []);
 
@@ -882,46 +850,44 @@ function WikiSummaryCard({ data, initialFullContent, setTopic }) {
     const term = target.getAttribute('href')?.replace('/wiki/', '');
     if (term && setTopic) {
       const decodedTerm = decodeURIComponent(term).replace(/_/g, ' ');
-      message.info(`正在跳转到新主题: ${decodedTerm}`);
-      setTopic(decodedTerm);
+      confirm({
+        title: `您想跳转到新的主题 "${decodedTerm}" 吗?`,
+        content: '当前页面的学习进度将不会保存。',
+        icon: <LinkOutlined />,
+        okText: "确认跳转", cancelText: "取消",
+        onOk() { setTopic(decodedTerm); },
+      });
     }
-  }, [setTopic, message]);
-
-  // 搜索
-  const scrollToResult = (sectionIndex) => {
-    const container = contentRef.current;
-    const targetElement = document.getElementById(`wiki-section-${sectionIndex}`);
-    if (container && targetElement) {
-        container.scrollTop = targetElement.offsetTop - container.offsetTop;
-        targetElement.style.transition = 'background-color 0.1s ease';
-        targetElement.style.backgroundColor = '#fffbe6';
-        setTimeout(() => {
-            if(targetElement) targetElement.style.backgroundColor = '';
-        }, 1500);
-    }
-  };
+  }, [setTopic, message, confirm]);
 
   const handleSearchInContent = () => {
-    if (!searchTerm.trim() || !contentRef.current) {
+    // 如果搜索词为空，则清空结果并返回
+    if (!searchTerm.trim()) {
       setSearchResults([]);
       setCurrentResultIndex(-1);
       return;
     }
-    const sections = initialFullContent?.content || [];
+    if (!fullHtmlContent || !fullHtmlContent.content) {
+      setSearchResults([]);
+      return;
+    }
+    
     const lowerCaseSearchTerm = searchTerm.toLowerCase();
     const results = [];
-    sections.forEach((section, index) => {
+    fullHtmlContent.content.forEach((section, index) => {
       const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = DOMPurify.sanitize(section.html_content || section.text || '');
-      const sectionText = tempDiv.textContent || tempDiv.innerText || '';
-      if (section.title.toLowerCase().includes(lowerCaseSearchTerm) || sectionText.toLowerCase().includes(lowerCaseSearchTerm)) {
-        results.push(index);
+      tempDiv.innerHTML = DOMPurify.sanitize(section.html_content || '');
+      const sectionText = (section.title + ' ' + (tempDiv.textContent || tempDiv.innerText)).toLowerCase();
+      
+      if (sectionText.includes(lowerCaseSearchTerm)) {
+        results.push({ sectionIndex: index, title: section.title });
       }
     });
+
     setSearchResults(results);
     if (results.length > 0) {
       setCurrentResultIndex(0);
-      scrollToResult(results[0]);
+      scrollToResult(results[0].sectionIndex);
       message.success(`找到了 ${results.length} 个匹配项。`);
     } else {
       setCurrentResultIndex(-1);
@@ -929,26 +895,70 @@ function WikiSummaryCard({ data, initialFullContent, setTopic }) {
     }
   };
 
+  const scrollToResult = (sectionIndex) => {
+    const targetElement = document.getElementById(`wiki-section-${sectionIndex}`);
+    if (contentRef.current && targetElement) {
+        contentRef.current.scrollTo({
+            top: targetElement.offsetTop - contentRef.current.offsetTop,
+            behavior: 'smooth'
+        });
+        targetElement.style.transition = 'background-color 0.2s ease-in-out';
+        targetElement.style.backgroundColor = 'rgba(255, 255, 0, 0.3)';
+        setTimeout(() => {
+            if(targetElement) targetElement.style.backgroundColor = '';
+        }, 2000);
+    }
+  };
+
   const handleNextResult = () => {
     if (searchResults.length === 0) return;
     const nextIndex = (currentResultIndex + 1) % searchResults.length;
     setCurrentResultIndex(nextIndex);
-    scrollToResult(searchResults[nextIndex]);
+    scrollToResult(searchResults[nextIndex].sectionIndex);
   };
 
   const handlePrevResult = () => {
     if (searchResults.length === 0) return;
     const prevIndex = (currentResultIndex - 1 + searchResults.length) % searchResults.length;
     setCurrentResultIndex(prevIndex);
-    scrollToResult(searchResults[prevIndex]);
+    scrollToResult(searchResults[prevIndex].sectionIndex);
   };
   
-  // 菜单
+  // 1. 目录功能
   const onMenuClick = ({ key }) => {
     const sectionIndex = parseInt(key.split('-')[2]);
     scrollToResult(sectionIndex);
   };
   
+  const buildTree = (list) => {
+    if (!list) return [];
+    const tree = [];
+    const stack = [];
+    list.forEach((item, index) => {
+      const key = `wiki-section-${index}`;
+      const node = { ...item, key, children: [] };
+      
+      while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        tree.push(node);
+      } else {
+        stack[stack.length - 1].children.push(node);
+      }
+      stack.push(node);
+    });
+
+    const cleanChildren = (nodes) => nodes.map(node => ({
+      key: node.key,
+      label: node.title,
+      children: (node.children && node.children.length > 0) ? cleanChildren(node.children) : null
+    }));
+    return cleanChildren(tree);
+  };
+
+  const menuItems = buildTree(fullHtmlContent?.content);
+
   // 时间线
   const [timelineItems, setTimelineItems] = useState([]);
   useEffect(() => { if (data && data.timeline) setTimelineItems(data.timeline.map((item, index) => ({ ...item, id: `timeline-${index}` }))); }, [data]);
@@ -962,7 +972,7 @@ function WikiSummaryCard({ data, initialFullContent, setTopic }) {
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${data.topic || '未命名主题'}-时间线.txt`;
+    link.download = `${topic || '未命名主题'}-时间线.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -977,31 +987,18 @@ function WikiSummaryCard({ data, initialFullContent, setTopic }) {
       });
   };
 
-  // --- 主渲染 ---
   return (
     <Card size="small" bordered style={{ borderStyle: "dashed" }}>
       <Space direction="vertical" style={{ width: "100%" }}>
-        
-         {/* AI摘要 和 "智能阅读" 按钮 */}
+        {/* AI摘要 和 "智能阅读" 按钮 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', textAlign:'left' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ 
-              background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f9ff 100%)', 
-              padding: '16px', borderRadius: '8px', border: '1px solid #bae7ff', marginBottom: '12px'
-            }}>
-              <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px', textAlign: 'left' }}>
-                🤖 AI智能摘要
-              </Title>
-              <Paragraph style={{ margin: 0, fontSize: '14px', lineHeight: '1.6' }}>
-                {data.summary || "暂无摘要"}
-              </Paragraph>
+            <div style={{ background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f9ff 100%)', padding: '16px', borderRadius: '8px', border: '1px solid #bae7ff', marginBottom: '12px' }}>
+              <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px', textAlign: 'left' }}>🤖 AI智能摘要</Title>
+              <Paragraph style={{ margin: 0, fontSize: '14px', lineHeight: '1.6' }}>{data.summary || "暂无摘要"}</Paragraph>
             </div>
-            {/* =================================================================== */}
-            {/* 【【【 恢复代码结束 】】】 */}
-            {/* =================================================================== */}
-
           </div>
-          <Button type="primary" size="small" onClick={() => setIsExpanded(!isExpanded)} style={{ marginLeft: 8, flexShrink: 0 }} icon={<BookOutlined />}>
+          <Button type="primary" size="small" onClick={toggleExpand} style={{ marginLeft: 8, flexShrink: 0 }} icon={<BookOutlined />} loading={isFullContentLoading}>
             {isExpanded ? '收起原文' : '智能阅读'}
           </Button>
         </div>
@@ -1010,44 +1007,69 @@ function WikiSummaryCard({ data, initialFullContent, setTopic }) {
         {isExpanded && (
           <>
             <Divider dashed style={{ margin: "8px 0" }} />
-            <div style={{ height: '65vh', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ height: '70vh', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column' }}>
               
               {/* 搜索框UI */}
               <div style={{ display: 'flex', gap: '8px', marginBottom: 16, flexShrink: 0, alignItems: 'center' }}>
-                <Input
+                <Input.Search
                   placeholder="在正文中搜索关键词..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  onPressEnter={handleSearchInContent}
+                  onSearch={handleSearchInContent} // 当用户按回车或点击搜索图标时触发
+                  allowClear
+                  enterButton // 显示一个搜索按钮
                   style={{ flex: 1 }}
                 />
-                <Button onClick={handleSearchInContent} type="primary">搜索</Button>
                 {searchResults.length > 0 && (
                   <>
-                    <Button icon={<UpOutlined />} onClick={handlePrevResult} />
+                    <Button icon={<UpOutlined />} onClick={handlePrevResult} size="small" />
                     <Text style={{ whiteSpace: 'nowrap' }}>{currentResultIndex + 1} / {searchResults.length}</Text>
-                    <Button icon={<DownOutlined />} onClick={handleNextResult} />
+                    <Button icon={<DownOutlined />} onClick={handleNextResult} size="small" />
                   </>
                 )}
-                {initialFullContent.url && (
-                  <Button type="link" icon={<LinkOutlined />} href={initialFullContent.url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto' }}>
+                {fullHtmlContent.url && (
+                  <Button type="link" icon={<LinkOutlined />} href={fullHtmlContent.url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto' }}>
                     在维基百科中查看原文
                   </Button>
                 )}
               </div>
 
-              {/* 使用新的 WikiSections 组件 */}
-              <WikiSections
-                initialFullContent={initialFullContent}
-                contentRef={contentRef}
-                onMenuClick={onMenuClick}
-                menuOpenKeys={menuOpenKeys}
-                onOpenChange={setMenuOpenKeys}
-                handleLinkClick={handleLinkClick}
-                handleLinkMouseOver={handleLinkMouseOver}
-                handleLinkMouseOut={handleLinkMouseOut}
-                isExpanded={isExpanded}
-              />
+              {/* 目录和内容区域 */}
+              {isFullContentLoading ? <Spin tip="正在加载原文..." /> : (
+                <Row gutter={24} style={{ flex: 1, overflow: 'hidden' }}>
+                  <Col span={6} style={{ height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
+                    <Menu
+                      mode="inline"
+                      items={menuItems}
+                      onClick={onMenuClick}
+                      onOpenChange={setMenuOpenKeys}
+                      openKeys={menuOpenKeys}
+                      style={{ border: 'none', paddingLeft: 0, textAlign: 'left', background: 'transparent' }}
+                    />
+                  </Col>
+                  <Col span={18} style={{ height: '100%' }}>
+                    <div
+                      ref={contentRef}
+                      style={{ padding: '0 16px', height: '100%', overflowY: 'auto', scrollBehavior: 'smooth', textAlign: 'left' }}
+                      onMouseOver={handleLinkMouseOver}
+                      onMouseOut={handleLinkMouseOut}
+                      onClick={handleLinkClick}
+                    >
+                      {fullHtmlContent?.content?.map((section, index) => (
+                        <div key={index} id={`wiki-section-${index}`} style={{ marginBottom: '24px' }}>
+                          <Title level={4} style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+                            {section.title}
+                          </Title>
+                          <div
+                            style={{ lineHeight: '1.8' }}
+                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(section.html_content || '') }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </Col>
+                </Row>
+              )}
             </div>
           </>
         )}
@@ -1580,7 +1602,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     const messagesEndRef = useRef(null);
 
     const [msgs, setMsgs] = useState([
-        { role: 'ai', text: '🏛️ 欢迎，历史探险家！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？' },
+        { role: 'ai', text: '🏛️ 欢迎，历史探索者！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？' },
     ]);
     const [loading, setLoading] = useState(false);
     const { message } = AntdApp.useApp();

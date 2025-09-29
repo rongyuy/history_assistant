@@ -17,13 +17,12 @@ def get_viewpoint_analysis(topic_name: str):
     data = wikipedia_service.get_topic_discussion_data(topic_name)
     return data
 
-@router.get("/full-content/{topic_name}")
-def get_wiki_full_content(topic_name: str):
+@router.get("/html-content/{topic_name}")
+def get_wiki_html_content_endpoint(topic_name: str):
     """
-    获取维基百科页面的完整原始内容，用于"阅读原文"功能
+    获取用于智能阅读的、经过清理和结构化的维基百科页面内容。
     """
-    data = wikipedia_service.get_wiki_full_content(topic_name)
-    return data
+    return wikipedia_service.get_wiki_structured_content(topic_name)
 
 @router.get("/discussion-details/{topic_name}")
 def get_discussion_details(topic_name: str, debate_item: str):
@@ -32,7 +31,6 @@ def get_discussion_details(topic_name: str, debate_item: str):
     """
     data = wikipedia_service.get_discussion_details(topic_name, debate_item)
     return data
-
 
 @router.get("/sources/{topic_name}", response_model=SourceComparisonResponse)
 def get_source_comparison(topic_name: str):

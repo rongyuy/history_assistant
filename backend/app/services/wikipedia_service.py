@@ -6,6 +6,8 @@ from app.services import llm_service
 from app.services.scraping_service import fetch_url_content_async
 import requests
 from opencc import OpenCC
+from bs4 import BeautifulSoup
+import re 
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
@@ -214,29 +216,116 @@ def get_source_comparison(topic_name: str) -> dict:
         "references": successful_contents
     }
 
-def get_wiki_full_content(topic_name: str) -> dict:
+# 【新增】一个辅助函数，用于将维基标记语言的链接转为HTML
+def convert_wiki_links_to_html(text: str) -> str:
     """
-    获取维基百科页面的完整原始内容，用于"阅读原文"功能
+    将维基百科的内部链接标记 [[页面标题|显示文本]] 或 [[链接]] 转换为HTML的<a>标签
+    """
+    if not text:
+        return ""
+
+    def replacer(match):
+        full_match = match.group(0)
+        # 简单处理，避免转换文件和分类链接
+        if full_match.startswith('[[File:') or full_match.startswith('[[Category:'):
+            return "" # 直接移除文件和分类链接
+
+        parts = match.group(1).split('|')
+        page_title = parts[0].strip()
+        display_text = parts[-1].strip()
+        
+        # 将页面标题转换为URL路径格式
+        href = f"/wiki/{page_title.replace(' ', '_')}"
+        
+        return f'<a href="{href}" title="{page_title}">{display_text}</a>'
+
+    # 正则表达式匹配维基链接
+    text = re.sub(r'\[\[([^\]]+)\]\]', replacer, text)
+    return text
+
+def get_wiki_structured_content(topic_name: str) -> dict:
+    """
+    获取维基百科页面的完整内容，并按章节进行结构化，同时保留内部链接。
     """
     page = wiki.page(topic_name)
-    
+
     if not page.exists():
         return {
             "title": f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。",
-            "content": "",
+            "content": [],
             "url": ""
         }
     
-    # 获取完整的页面内容
-    full_content = page.text
+    # 递归函数，用于提取章节
+    def extract_sections_recursive(section, level):
+        title = convert_to_simplified(section.title)
+        
+        # --- 【核心修正逻辑开始】 ---
+        
+        # 1. 获取当前分区的完整文本 (包含所有子分区)
+        full_text = section.text
+        
+        # 2. 获取所有直接子分区的文本
+        children_text = ''.join(s.text for s in section.sections)
+        
+        # 3. 从完整文本中移除所有子分区的文本，从而得到只属于当前分区自己的文本
+        #    我们还移除了标题自身，因为它会重复出现在文本开头
+        parent_only_text = full_text.replace(children_text, '').replace(section.title, '').strip()
+
+        # 4. 对只属于父分区自己的文本进行链接转换和繁简转换
+        text_with_links = convert_wiki_links_to_html(parent_only_text)
+        simplified_text = convert_to_simplified(text_with_links)
+
+        # --- 【核心修正逻辑结束】 ---
+
+        sections_list = []
+        # 只有当父分区确实有自己的文本时，才把它作为一个独立的条目添加
+        if simplified_text:
+            sections_list.append({
+                'title': title,
+                'html_content': simplified_text,
+                'level': level,
+            })
+        # 如果父分区没有独立文本（只是一个容器），也继续处理它的子分区
+        # 这种情况通常发生在主标题下直接就是子标题
+        elif not sections_list and section.sections:
+             sections_list.append({
+                'title': title,
+                'html_content': '', # 内容为空
+                'level': level,
+            })
+
+        # 递归处理所有子章节
+        for s in section.sections:
+            sections_list.extend(extract_sections_recursive(s, level + 1))
+            
+        return sections_list
+
+    # --- 从根页面开始提取 ---
+    structured_content = []
     
-    # 获取页面的URL
-    page_url = page.fullurl
-    
+    # 1. 添加摘要
+    summary_raw_text = page.summary
+    summary_with_links = convert_wiki_links_to_html(summary_raw_text)
+    simplified_summary = convert_to_simplified(summary_with_links)
+    if simplified_summary:
+        structured_content.append({
+            'title': '摘要',
+            'html_content': simplified_summary,
+            'level': 1,
+        })
+
+    # 2. 递归提取所有章节
+    for s in page.sections:
+        # 过滤掉参考文献等不需要的章节
+        unwanted = ["参考文献", "参考资料", "外部链接", "参见"]
+        if convert_to_simplified(s.title) not in unwanted:
+            structured_content.extend(extract_sections_recursive(s, 1))
+            
     return {
         "title": convert_to_simplified(page.title),
-        "content": convert_to_simplified(full_content),
-        "url": page_url
+        "content": structured_content,
+        "url": page.fullurl
     }
 
 def get_discussion_details(topic_name: str, debate_item: str) -> dict:

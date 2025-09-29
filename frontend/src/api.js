@@ -33,11 +33,6 @@ export const getSourcesComparison = (topic) => {
   return apiClient.get(`/sources/${topic}`);
 };
 
-// 新增: 封装获取维基百科完整原始内容的API
-export const getWikiFullContent = (topic) => {
-  return apiClient.get(`/full-content/${topic}`);
-};
-
 // 新增: 封装获取讨论页详细内容的API
 export const getDiscussionDetails = (topic, debateItem) => {
     return apiClient.get(`/discussion-details/${topic}`, {
