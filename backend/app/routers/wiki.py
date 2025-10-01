@@ -39,3 +39,10 @@ def get_source_comparison(topic_name: str):
     """
     final_data = wikipedia_service.get_source_comparison(topic_name)
     return final_data
+
+@router.get("/wiki/preview/{topic_name}", response_model=dict)
+def get_wiki_preview(topic_name: str):
+    """
+    【新路由】用于获取维基百科悬浮窗预览摘要。
+    """
+    return wikipedia_service.get_wiki_preview_summary(topic_name)

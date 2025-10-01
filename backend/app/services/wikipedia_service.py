@@ -8,14 +8,30 @@ import requests
 from opencc import OpenCC
 from bs4 import BeautifulSoup
 import re 
+import os # 导入os模块用于文件操作
+
+# --- Debugging Setup ---
+DEBUG_FILE = "debug_output.txt"
+# 在服务启动时清空旧的调试文件
+if os.path.exists(DEBUG_FILE):
+    os.remove(DEBUG_FILE)
+
+def write_debug_log(header, content):
+    """一个简单的函数，用于将调试信息写入文件。"""
+    with open(DEBUG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"\n{'='*20} {header} {'='*20}\n")
+        f.write(content)
+        f.write("\n\n")
+# --- End Debugging Setup ---
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
-    language='zh',  # 使用繁体中文，后续转换为简体
+    language='zh',
+    extract_format=wikipediaapi.ExtractFormat.HTML, 
     timeout=30
 )
 
-# 创建繁简转换器
+#创建繁简转换器
 cc = OpenCC('t2s')  # 繁体转简体
 
 def convert_to_simplified(text):
@@ -71,6 +87,86 @@ def get_external_links_from_wiki_api(topic_name: str) -> list:
         print(f"解析MediaWiki API响应时出错: {e}")
         return []
 
+# 【新增功能】获取维基百科官方的悬浮窗预览内容 (Page Preview API)
+def get_wiki_preview_summary(topic_name: str) -> dict:
+    """
+    调用 MediaWiki API 获取条目的预览摘要，速度极快。
+    这将替换掉原来缓慢的AI摘要生成。
+    """
+    session = requests.Session()
+    url = "https://zh.wikipedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "format": "json",
+        "prop": "extracts",  # 获取摘要
+        "exintro": True,      # 只获取引言部分
+        "explaintext": True,  # 以纯文本形式返回
+        "redirects": 1,       # 自动处理重定向
+        "titles": topic_name
+    }
+    headers = {'User-Agent': 'HistoryAssistant/1.0 (rongyuy@example.com)'}
+
+    try:
+        response = session.get(url=url, params=params, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        pages = data.get("query", {}).get("pages", {})
+        if not pages:
+            return {"summary": "未找到相关条目。"}
+
+        # API返回的page id是动态的，所以需要遍历来获取
+        for page_id, page_data in pages.items():
+            if page_id == "-1": # "-1" 表示页面不存在
+                return {"summary": f"在维基百科中找不到关于 '{topic_name}' 的页面。"}
+            
+            summary = page_data.get("extract")
+            if summary:
+                # 返回简体中文摘要
+                return {"summary": convert_to_simplified(summary)}
+        
+        return {"summary": "无法提取摘要。"}
+
+    except requests.RequestException as e:
+        print(f"调用维基百科预览API失败: {e}")
+        return {"summary": "网络请求失败，无法获取预览。"}
+
+# 【新功能】直接从 MediaWiki API 获取原始 wikitext
+def get_raw_wikitext(topic_name: str) -> str:
+    """
+    通过直接调用 MediaWiki API 来获取页面的原始 wikitext。
+    """
+    S = requests.Session()
+    URL = "https://zh.wikipedia.org/w/api.php"
+    
+    PARAMS = {
+        "action": "query",
+        "prop": "revisions",
+        "rvprop": "content",
+        "titles": topic_name,
+        "format": "json",
+        "formatversion": "2"
+    }
+    HEADERS = {'User-Agent': 'HistoryAssistant/1.0 (rongyuy@example.com)'}
+    
+    try:
+        response = S.get(url=URL, params=PARAMS, headers=HEADERS, timeout=90)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "query" in data and "pages" in data["query"] and data["query"]["pages"]:
+            page = data["query"]["pages"][0]
+            if "revisions" in page and page["revisions"]:
+                # 检查是否有 content 字段
+                content = page["revisions"][0].get("content")
+                if content:
+                    return content
+    except requests.RequestException as e:
+        print(f"调用MediaWiki API获取wikitext失败: {e}")
+    except Exception as e:
+        print(f"解析MediaWiki API wikitext响应时出错: {e}")
+    
+    return "" # 如果失败则返回空字符串
 
 def get_topic_data(topic_name: str) -> dict:
     page = wiki.page(topic_name)
@@ -216,118 +312,148 @@ def get_source_comparison(topic_name: str) -> dict:
         "references": successful_contents
     }
 
-# 【新增】一个辅助函数，用于将维基标记语言的链接转为HTML
-def convert_wiki_links_to_html(text: str) -> str:
-    """
-    将维基百科的内部链接标记 [[页面标题|显示文本]] 或 [[链接]] 转换为HTML的<a>标签
-    """
-    if not text:
-        return ""
-
-    def replacer(match):
-        full_match = match.group(0)
-        # 简单处理，避免转换文件和分类链接
-        if full_match.startswith('[[File:') or full_match.startswith('[[Category:'):
-            return "" # 直接移除文件和分类链接
-
-        parts = match.group(1).split('|')
-        page_title = parts[0].strip()
-        display_text = parts[-1].strip()
-        
-        # 将页面标题转换为URL路径格式
-        href = f"/wiki/{page_title.replace(' ', '_')}"
-        
-        return f'<a href="{href}" title="{page_title}">{display_text}</a>'
-
-    # 正则表达式匹配维基链接
-    text = re.sub(r'\[\[([^\]]+)\]\]', replacer, text)
-    return text
-
 def get_wiki_structured_content(topic_name: str) -> dict:
     """
-    获取维基百科页面的完整内容，并按章节进行结构化，同时保留内部链接。
+    【最终稳定修正版 v8 + 详细调试】使用 MediaWiki Parse API 获取完整HTML并进行可靠解析。
     """
-    page = wiki.page(topic_name)
+    session = requests.Session()
+    url = "https://zh.wikipedia.org/w/api.php"
+    params = {"action": "parse", "page": topic_name, "prop": "text|displaytitle", "format": "json", "formatversion": "2"}
+    headers = {'User-Agent': 'HistoryAssistant/1.0 (your-email@example.com)'}
 
-    if not page.exists():
-        return {
-            "title": f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。",
-            "content": [],
-            "url": ""
+    try:
+        response = session.get(url=url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        if "error" in data:
+            return {"title": f"找不到页面: '{topic_name}'", "summary": data["error"]["info"], "content": [], "url": ""}
+
+        page_title = data["parse"]["displaytitle"]
+        page_id = data["parse"]["pageid"]
+        page_url = f"https://zh.wikipedia.org/?curid={page_id}"
+        full_html = data.get("parse", {}).get("text")
+        
+        write_debug_log("1. Raw HTML Content", full_html if full_html else "No HTML content retrieved.")
+
+        if not full_html:
+            return {"title": convert_to_simplified(page_title), "summary": "此页面不包含可解析的正文内容。", "content": [], "url": page_url}
+
+        soup = BeautifulSoup(full_html, 'html.parser')
+        
+        # 移除不需要的元素
+        unwanted_selectors = ['.mw-editsection', '.noprint', '.mw-jump-link','.infobox', '.metadata', '.ambox', '.hatnote','.navbox', '.thumb', '.reflist', '#toc', '.sidebar', '.reference', '.gallery', 'table.mbox-small-left', 'style']
+        for selector in unwanted_selectors:
+            for tag in soup.select(selector):
+                tag.decompose()
+        for ref in soup.find_all("sup", class_="reference"):
+            ref.decompose()
+        
+        # 转换链接
+        for a in soup.find_all('a', href=re.compile(r'^/wiki/')):
+            if ':' not in a['href']:
+                a['href'] = 'https://zh.wikipedia.org' + a['href']
+                a['target'] = '_blank'
+                a['rel'] = 'noopener noreferrer'
+
+        content_div = soup.find('div', class_='mw-parser-output')
+        if not content_div:
+            return {"title": convert_to_simplified(page_title), "summary": "无法找到页面的主内容区域。", "content": [], "url": page_url}
+        
+        write_debug_log("2. Cleaned HTML Content", content_div.prettify())
+
+        # ==================== 目录和摘要提取逻辑【最终修正版 v8】 ====================
+        structured_content = []
+        unwanted_titles = ["参考文献", "参考资料", "外部链接", "参见", "註釋", "研究書目"]
+        
+        # 步骤 1: 初始化，创建“摘要”部分作为第一个默认章节
+        current_section = {
+            "level": 2,
+            "title": "摘要",
+            "id": "summary-section",
+            "html_content": ""
         }
-    
-    # 递归函数，用于提取章节
-    def extract_sections_recursive(section, level):
-        title = convert_to_simplified(section.title)
+        structured_content.append(current_section)
+        write_debug_log("Init", "Created initial '摘要' section.")
         
-        # --- 【核心修正逻辑开始】 ---
-        
-        # 1. 获取当前分区的完整文本 (包含所有子分区)
-        full_text = section.text
-        
-        # 2. 获取所有直接子分区的文本
-        children_text = ''.join(s.text for s in section.sections)
-        
-        # 3. 从完整文本中移除所有子分区的文本，从而得到只属于当前分区自己的文本
-        #    我们还移除了标题自身，因为它会重复出现在文本开头
-        parent_only_text = full_text.replace(children_text, '').replace(section.title, '').strip()
-
-        # 4. 对只属于父分区自己的文本进行链接转换和繁简转换
-        text_with_links = convert_wiki_links_to_html(parent_only_text)
-        simplified_text = convert_to_simplified(text_with_links)
-
-        # --- 【核心修正逻辑结束】 ---
-
-        sections_list = []
-        # 只有当父分区确实有自己的文本时，才把它作为一个独立的条目添加
-        if simplified_text:
-            sections_list.append({
-                'title': title,
-                'html_content': simplified_text,
-                'level': level,
-            })
-        # 如果父分区没有独立文本（只是一个容器），也继续处理它的子分区
-        # 这种情况通常发生在主标题下直接就是子标题
-        elif not sections_list and section.sections:
-             sections_list.append({
-                'title': title,
-                'html_content': '', # 内容为空
-                'level': level,
-            })
-
-        # 递归处理所有子章节
-        for s in section.sections:
-            sections_list.extend(extract_sections_recursive(s, level + 1))
+        # 步骤 2: 遍历内容区域的所有直接子元素
+        for element in content_div.find_all(recursive=False):
+            write_debug_log(f"--- Processing Element ---", f"Tag: {element.name}, Class: {element.get('class', [])}")
             
-        return sections_list
-
-    # --- 从根页面开始提取 ---
-    structured_content = []
-    
-    # 1. 添加摘要
-    summary_raw_text = page.summary
-    summary_with_links = convert_wiki_links_to_html(summary_raw_text)
-    simplified_summary = convert_to_simplified(summary_with_links)
-    if simplified_summary:
-        structured_content.append({
-            'title': '摘要',
-            'html_content': simplified_summary,
-            'level': 1,
-        })
-
-    # 2. 递归提取所有章节
-    for s in page.sections:
-        # 过滤掉参考文献等不需要的章节
-        unwanted = ["参考文献", "参考资料", "外部链接", "参见"]
-        if convert_to_simplified(s.title) not in unwanted:
-            structured_content.extend(extract_sections_recursive(s, 1))
+            heading_tag = None
             
-    return {
-        "title": convert_to_simplified(page.title),
-        "content": structured_content,
-        "url": page.fullurl
-    }
+            # 检查当前元素是否是标题容器 (通常是一个 div) 或标题本身
+            if element.name in ['h2', 'h3', 'h4', 'h5', 'h6']:
+                heading_tag = element
+            elif element.find(['h2', 'h3', 'h4', 'h5', 'h6']):
+                heading_tag = element.find(['h2', 'h3', 'h4', 'h5', 'h6'])
 
+            # 步骤 3: 如果是标题，则创建新章节；否则，将内容追加到当前章节
+            if heading_tag:
+                write_debug_log("Found Heading Element", f"Tag: {heading_tag.name}")
+                
+                # 直接从标题标签获取文本和ID
+                title = heading_tag.get_text(strip=True)
+                section_id = heading_tag.get('id')
+                if not section_id:
+                    # 如果原生HTML没有ID，就自己创建一个
+                    section_id = f"section-{title.replace(' ', '_')}"
+                    heading_tag['id'] = section_id
+                
+                if title:
+                    simplified_title = convert_to_simplified(title)
+                    write_debug_log("Extracted Headline", f"Title: '{simplified_title}', ID: '{section_id}'")
+
+                    if simplified_title in unwanted_titles:
+                        write_debug_log("Unwanted Title Found", f"Stopping parsing at '{simplified_title}'")
+                        break
+                    
+                    # 检查是否已经存在同名标题，避免重复添加
+                    if not any(d.get('title') == simplified_title for d in structured_content):
+                        new_section = {
+                            "level": int(heading_tag.name[1]),
+                            "title": simplified_title,
+                            "id": section_id or title.replace(" ", "_"), # Fallback ID
+                            "html_content": ""
+                        }
+                        structured_content.append(new_section)
+                        current_section = new_section
+                        write_debug_log("Created New Section", f"Current section is now '{simplified_title}'")
+                    else:
+                         write_debug_log("Duplicate Title", f"Skipping duplicate section '{simplified_title}'")
+
+
+                else: # 如果标题标签没有文本，当作普通内容处理
+                    write_debug_log("Empty Heading Tag", "Appending to current section's content")
+                    current_section["html_content"] += str(element)
+            else:
+                # 如果不是标题，就将这个元素的HTML追加到当前章节的内容中
+                write_debug_log("Found Content Element", f"Appending to '{current_section['title']}'")
+                current_section["html_content"] += str(element)
+        
+        # 步骤 4: 清理和转换最终内容
+        final_content = []
+        for section in structured_content:
+            section["html_content"] = convert_to_simplified(section["html_content"].strip())
+            # 只有当摘要有内容，或者非摘要章节有标题时才添加
+            if section['title'] == "摘要" and not section['html_content']:
+                continue # 如果摘要为空，则不添加
+            final_content.append(section)
+        # ==================== 逻辑修正结束 ====================
+        
+        final_data = {
+            "title": convert_to_simplified(page_title),
+            "content": final_content, 
+            "url": page_url
+        }
+        write_debug_log("3. Backend Processed Data (Final)", str(final_data))
+        
+        return final_data
+
+    except Exception as e:
+        write_debug_log("FATAL ERROR in get_wiki_structured_content", str(e))
+        return {"title": "后端处理错误", "summary": f"解析维基百科页面时发生错误: {e}", "content": [], "url": ""}  
+            
 def get_discussion_details(topic_name: str, debate_item: str) -> dict:
     """
     获取特定讨论要点的详细内容和多方观点分析

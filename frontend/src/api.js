@@ -28,19 +28,18 @@ export const scrapeUrl = (url) => {
   return apiClient.post('/scrape', { url });
 };
 
-// 新增: 封装获取史料对比数据的API
+// 封装获取史料对比数据的API
 export const getSourcesComparison = (topic) => {
   return apiClient.get(`/sources/${topic}`);
 };
 
-// 新增: 封装获取讨论页详细内容的API
+// 封装获取讨论页详细内容的API
 export const getDiscussionDetails = (topic, debateItem) => {
     return apiClient.get(`/discussion-details/${topic}`, {
         params: { debate_item: debateItem }
     });
 };
 
-// --- 新增API ---
 // 封装获取结构化大纲的API
 export const getStructuredOutline = (topic) => {
     return apiClient.get(`/outline/${topic}`);
@@ -75,4 +74,8 @@ export const postChatMessageStream = async (chatRequest, onChunk) => {
 
 export const getWikiHtmlContent = (topic) => {
   return apiClient.get(`/html-content/${topic}`);
+};
+
+export const getWikiPreview = (topic) => {
+  return apiClient.get(`/wiki/preview/${topic}`); 
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ReactFlowProvider  } from 'reactflow';
 import {
   Layout,
@@ -22,7 +22,7 @@ import {
   Modal,
   Row,
   Col,
-  Anchor,
+  //Anchor,
   Popover,
   Menu,
 } from 'antd';
@@ -31,7 +31,7 @@ import {
   BulbOutlined,
   MessageOutlined,
   DeleteOutlined,
-  EditOutlined,
+  //EditOutlined,
   OrderedListOutlined,
   ApartmentOutlined,
   PlusOutlined,
@@ -42,20 +42,25 @@ import {
   LinkOutlined,
   UpOutlined, DownOutlined,
 } from '@ant-design/icons';
-import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails, getWikiPreview } from '../api';
 import ArgumentMap from '../ArgumentMap'
 import DOMPurify from 'dompurify'
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
-const { confirm } = Modal; // 从 Modal 中解构 confirm
 
+//配置 DOMPurify 以允许在新标签页打开链接
+DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+  if (node.tagName === 'A' && node.hasAttribute('href')) {
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+  }
+});
 
 export default function InquiryPage() {
   const [topic, setTopic] = useState('');
   const [inputValue, setInputValue] = useState('');
-
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
 
@@ -272,7 +277,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   const [isChatOpen, setChatOpen] = useState(false);
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
   const [chatValue, setChatValue] = useState('');
-  // 【【【 核心修改：在这里添加所有缺失的 state 】】】
   const [activeModule, setActiveModule] = useState(null);
   const [showChatDrawer, setShowChatDrawer] = useState(false);
   const [initialAiPrompt, setInitialAiPrompt] = useState('');
@@ -765,317 +769,314 @@ function EditableTimelineItem({ item, onChange, onDelete }) {
   );
 }
 
-function WikiSummaryCard({ data, topic, setTopic, fullHtmlContent, isFullContentLoading, ensureFullContentFetched }) {
+function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, ensureFullContentFetched }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef(null);
-  const { message } = AntdApp.useApp();
-  const { confirm } = Modal;
+  const { message, modal } = AntdApp.useApp();
+  const { confirm } = modal;
 
-  // --- 悬浮窗 & 超链接 State ---
-  const [popover, setPopover] = useState({ visible: false, content: '', x: 0, y: 0 });
+  const [popover, setPopover] = useState({ visible: false, content: null, title: '', top: 0, left: 0, });
+  const hideTimer = useRef(null);
+  const currentTargetRef = useRef(null);
   const summaryCache = useRef(new Map()).current;
 
-  // --- 搜索 State ---
+  // --- 搜索功能 State ---
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(-1);
 
-  // --- 目录 State ---
-  const [menuOpenKeys, setMenuOpenKeys] = useState([]);
-
-  // 展开/收起原文
-  const toggleExpand = async () => {
-    const nextState = !isExpanded;
-    setIsExpanded(nextState);
-
-    if (nextState) {
-      const content = await ensureFullContentFetched();
-      // 自动展开所有顶级目录
-      if (content && content.content) {
-        const topLevelKeys = content.content
-          .map((_, index) => `wiki-section-${index}`)
-          .filter((_, index) => content.content[index].level === 1);
-        setMenuOpenKeys(topLevelKeys);
-      }
-    }
-  };
-
-  // --- 交互功能 ---
-
-  // 2. 悬浮窗功能
-  const handleLinkMouseOver = useCallback(async (e) => {
-    const target = e.target.closest('a[href^="/wiki/"]');
-    if (!target) return;
-    
-    // 立即显示下划线
-    target.style.textDecoration = 'underline';
-
-    const term = decodeURIComponent(target.getAttribute('href').substring(6)).replace(/_/g, ' ');
-    if (!term || term.includes(':')) return;
-
-    const rect = target.getBoundingClientRect();
-    
-    const showPopover = (content) => {
-      setPopover({ visible: true, content, x: rect.left, y: rect.bottom + 5 });
-    };
-
-    if (summaryCache.has(term)) {
-      showPopover(summaryCache.get(term));
-      return;
-    }
-    
-    showPopover(<Spin size="small" />);
-    try {
-      const res = await getWikiData(term);
-      const summaryText = res.data.summary || '暂无摘要';
-      summaryCache.set(term, summaryText);
-      showPopover(summaryText);
-    } catch (error) {
-      const errorText = '摘要加载失败';
-      summaryCache.set(term, errorText);
-      showPopover(errorText);
-    }
-  }, [summaryCache]);
-
-  const handleLinkMouseOut = useCallback((e) => {
-    const target = e.target.closest('a');
-    if(target) target.style.textDecoration = 'none';
-    setPopover({ visible: false, content: '', x: 0, y: 0 });
-  }, []);
-
-  const handleLinkClick = useCallback((e) => {
-    const target = e.target.closest('a[href^="/wiki/"]');
-    if (!target) return;
-    e.preventDefault();
-    const term = target.getAttribute('href')?.replace('/wiki/', '');
-    if (term && setTopic) {
-      const decodedTerm = decodeURIComponent(term).replace(/_/g, ' ');
-      confirm({
-        title: `您想跳转到新的主题 "${decodedTerm}" 吗?`,
-        content: '当前页面的学习进度将不会保存。',
-        icon: <LinkOutlined />,
-        okText: "确认跳转", cancelText: "取消",
-        onOk() { setTopic(decodedTerm); },
-      });
-    }
-  }, [setTopic, message, confirm]);
-
-  const handleSearchInContent = () => {
-    // 如果搜索词为空，则清空结果并返回
-    if (!searchTerm.trim()) {
-      setSearchResults([]);
-      setCurrentResultIndex(-1);
-      return;
-    }
-    if (!fullHtmlContent || !fullHtmlContent.content) {
-      setSearchResults([]);
-      return;
-    }
-    
-    const lowerCaseSearchTerm = searchTerm.toLowerCase();
-    const results = [];
-    fullHtmlContent.content.forEach((section, index) => {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = DOMPurify.sanitize(section.html_content || '');
-      const sectionText = (section.title + ' ' + (tempDiv.textContent || tempDiv.innerText)).toLowerCase();
-      
-      if (sectionText.includes(lowerCaseSearchTerm)) {
-        results.push({ sectionIndex: index, title: section.title });
-      }
-    });
-
-    setSearchResults(results);
-    if (results.length > 0) {
-      setCurrentResultIndex(0);
-      scrollToResult(results[0].sectionIndex);
-      message.success(`找到了 ${results.length} 个匹配项。`);
-    } else {
-      setCurrentResultIndex(-1);
-      message.info('未在正文中找到匹配项。');
-    }
-  };
-
-  const scrollToResult = (sectionIndex) => {
-    const targetElement = document.getElementById(`wiki-section-${sectionIndex}`);
-    if (contentRef.current && targetElement) {
-        contentRef.current.scrollTo({
-            top: targetElement.offsetTop - contentRef.current.offsetTop,
-            behavior: 'smooth'
-        });
-        targetElement.style.transition = 'background-color 0.2s ease-in-out';
-        targetElement.style.backgroundColor = 'rgba(255, 255, 0, 0.3)';
-        setTimeout(() => {
-            if(targetElement) targetElement.style.backgroundColor = '';
-        }, 2000);
-    }
-  };
-
-  const handleNextResult = () => {
-    if (searchResults.length === 0) return;
-    const nextIndex = (currentResultIndex + 1) % searchResults.length;
-    setCurrentResultIndex(nextIndex);
-    scrollToResult(searchResults[nextIndex].sectionIndex);
-  };
-
-  const handlePrevResult = () => {
-    if (searchResults.length === 0) return;
-    const prevIndex = (currentResultIndex - 1 + searchResults.length) % searchResults.length;
-    setCurrentResultIndex(prevIndex);
-    scrollToResult(searchResults[prevIndex].sectionIndex);
-  };
-  
-  // 1. 目录功能
-  const onMenuClick = ({ key }) => {
-    const sectionIndex = parseInt(key.split('-')[2]);
-    scrollToResult(sectionIndex);
-  };
-  
-  const buildTree = (list) => {
-    if (!list) return [];
-    const tree = [];
-    const stack = [];
-    list.forEach((item, index) => {
-      const key = `wiki-section-${index}`;
-      const node = { ...item, key, children: [] };
-      
-      while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
-        stack.pop();
-      }
-      if (stack.length === 0) {
-        tree.push(node);
-      } else {
-        stack[stack.length - 1].children.push(node);
-      }
-      stack.push(node);
-    });
-
-    const cleanChildren = (nodes) => nodes.map(node => ({
-      key: node.key,
-      label: node.title,
-      children: (node.children && node.children.length > 0) ? cleanChildren(node.children) : null
-    }));
-    return cleanChildren(tree);
-  };
-
-  const menuItems = buildTree(fullHtmlContent?.content);
-
-  // 时间线
   const [timelineItems, setTimelineItems] = useState([]);
-  useEffect(() => { if (data && data.timeline) setTimelineItems(data.timeline.map((item, index) => ({ ...item, id: `timeline-${index}` }))); }, [data]);
+
+  useEffect(() => {
+    if (data && data.timeline) {
+      setTimelineItems(data.timeline.map((item, index) => ({ ...item, id: `timeline-${index}` })));
+    }
+  }, [data]);
+
+  // useEffect(() => {
+  //   const contentEl = contentRef.current;
+  //   if (!contentEl) return;
+  //   const handleScroll = () => {
+  //     if (popover.visible) {
+  //       setPopover(p => ({ ...p, visible: false }));
+  //       currentTargetRef.current = null;
+  //       clearTimeout(hideTimer.current);
+  //     }
+  //   };
+  //   contentEl.addEventListener('scroll', handleScroll, { passive: true });
+  //   return () => contentEl.removeEventListener('scroll', handleScroll);
+  // }, [popover.visible]);
+
+  const handleLinkMouseOver = useCallback(async (e) => {
+    const target = e.target.closest('a[href^="https://zh.wikipedia.org/wiki/"]');
+    clearTimeout(hideTimer.current);
+    if (!target || target === currentTargetRef.current) return;
+    currentTargetRef.current = target;
+    const term = decodeURIComponent(target.getAttribute('href').split('/wiki/')[1]).replace(/_/g, ' ');
+    if (!term || term === topic || term.includes(':')) return;
+    const rect = target.getBoundingClientRect();
+    setPopover(p => ({ ...p, visible: true, content: <Spin size="small" />, title: `加载中: ${term}`, top: rect.bottom + 15, left: rect.left, }));
+    let summaryText = summaryCache.get(term);
+    if (!summaryText) {
+      try {
+        const response = await getWikiPreview(term);
+        summaryText = response.data.summary || '此词条暂无可用预览。';
+        summaryCache.set(term, summaryText);
+      } catch (error) { console.error("加载维基百科预览失败:", error); summaryText = '加载预览失败。'; }
+    }
+    const POPOVER_WIDTH = 350, POPOVER_HEIGHT = 150, GAP = 15;
+    let top = 0, left = 0;
+    if (window.innerHeight - rect.bottom > POPOVER_HEIGHT + GAP) { top = rect.bottom + GAP; left = rect.left; }
+    else { top = rect.top - POPOVER_HEIGHT - GAP; left = rect.left; }
+    if (left + POPOVER_WIDTH > window.innerWidth) { left = window.innerWidth - POPOVER_WIDTH - GAP; }
+    if (left < 0) { left = GAP; }
+    if (target === currentTargetRef.current) { setPopover({ visible: true, content: summaryText, title: term, top, left }); }
+  }, [topic, summaryCache]);
+  const handleLinkMouseOut = useCallback(() => { currentTargetRef.current = null; hideTimer.current = setTimeout(() => { setPopover(p => ({ ...p, visible: false })); }, 200); }, []);
+
   const handleTimelineChange = (id, field, value) => { setTimelineItems(items => items.map(item => item.id === id ? { ...item, [field]: value } : item)); };
   const handleAddTimelineItem = () => { setTimelineItems(items => [...items, { id: `timeline-new-${Date.now()}`, year: '', event: '' }]); };
   const handleDeleteTimelineItem = (id) => { setTimelineItems(items => items.filter(item => item.id !== id)); };
   const handleSaveNotes = () => { message.success('笔记已保存！(模拟)'); };
-  const handleExport = () => {
-    if (timelineItems.length === 0) { message.warning('没有可导出的时间线内容。'); return; }
-    const content = timelineItems.map(item => `${item.year}: ${item.event}`).join('\n');
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${topic || '未命名主题'}-时间线.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-    message.success('时间线已导出为 .txt 文件！');
+  const handleExport = () => { if (timelineItems.length === 0) { message.warning('没有可导出的时间线内容。'); return; } const content = timelineItems.map(item => `${item.year}: ${item.event}`).join('\n'); const blob = new Blob([content], { type: 'text/plain;charset=utf-8' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${topic || '未命名主题'}-时间线.txt`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); message.success('时间线已导出为 .txt 文件！'); };
+  const handleClearTimeline = () => { Modal.confirm({ title: '您确定要清空所有时间线吗？', icon: <ExclamationCircleFilled />, content: '这个操作无法撤销。', okText: '确认清空', okType: 'danger', cancelText: '取消', onOk() { setTimelineItems([]); message.info('时间线已清空。'); }, }); };
+  const toggleExpand = useCallback(async () => {
+    const nextState = !isExpanded;
+    setIsExpanded(nextState);
+    if (nextState && !fullHtmlContent) {
+      await ensureFullContentFetched();
+    }
+    // 【修复】展开或收起时，清空上一次的搜索状态
+    setSearchTerm('');
+    setSearchResults([]);
+    setCurrentResultIndex(-1);
+  }, [isExpanded, fullHtmlContent, ensureFullContentFetched]);
+  const handleScrollTo = (key) => {
+    const element = document.getElementById(key);
+    if (element && contentRef.current) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
-  const handleClearTimeline = () => {
-      confirm({
-        title: '您确定要清空所有时间线吗？', icon: <ExclamationCircleFilled />, content: '这个操作无法撤销。',
-        okText: '确认清空', okType: 'danger', cancelText: '取消',
-        onOk() { setTimelineItems([]); message.info('时间线已清空。'); },
-      });
+  const buildTree = (list) => {
+    if (!list || list.length === 0) return [];
+    const mapToMenuItems = (nodes) => nodes.map(node => {
+      const hasChildren = node.children && node.children.length > 0;
+      const label = (
+        <span onClick={(e) => { e.stopPropagation(); handleScrollTo(node.id); }}>
+          {node.title}
+        </span>
+      );
+      const menuItem = { key: node.id, label: label, };
+      if (hasChildren) {
+        menuItem.children = mapToMenuItems(node.children);
+      }
+      return menuItem;
+    });
+    const tree = [];
+    const path = [];
+    list.forEach(item => {
+        const node = { ...item, children: [] };
+        while (path.length > 0 && path[path.length - 1].level >= node.level) { path.pop(); }
+        if (path.length > 0) { path[path.length - 1].children.push(node); }
+        else { tree.push(node); }
+        path.push(node);
+    });
+    return mapToMenuItems(tree);
   };
 
+  const displayedContent = useMemo(() => {
+    if (!isExpanded || !fullHtmlContent?.content) return [];
+
+    // 先对原始HTML进行净化，这是最安全的第一步
+    const sanitizedSections = fullHtmlContent.content.map(section => ({
+      ...section,
+      html_content: DOMPurify.sanitize(section.html_content || '')
+    }));
+
+    // 如果没有搜索词，直接返回净化后的内容
+    if (!searchTerm) {
+      return sanitizedSections;
+    }
+
+    // 如果有搜索词，在净化后的HTML字符串上进行安全的高亮处理
+    try {
+      // 创建一个安全的正则表达式，避免特殊字符干扰
+      const safeRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      return sanitizedSections.map(section => {
+        // 关键修复：只替换不在HTML标签内部的文本
+        // 我们通过一个技巧实现：先用一个特殊标记替换掉所有HTML标签，
+        // 然后在剩下的纯文本上进行高亮替换，最后再把HTML标签恢复回去。
+        const placeholders = [];
+        let placeholderId = 0;
+        
+        // 1. 抽取所有HTML标签，用占位符替换
+        const textOnly = section.html_content.replace(/<[^>]*>/g, (match) => {
+          placeholders.push(match);
+          return `__HTML_PLACEHOLDER_${placeholderId++}__`;
+        });
+        
+        // 2. 在纯文本上进行高亮替换
+        const highlightedText = textOnly.replace(safeRegex, match => `<span class="search-highlight">${match}</span>`);
+        
+        // 3. 将HTML标签恢复回去
+        let finalHtml = highlightedText;
+        for (let i = 0; i < placeholders.length; i++) {
+          finalHtml = finalHtml.replace(`__HTML_PLACEHOLDER_${i}__`, placeholders[i]);
+        }
+        
+        return { ...section, html_content: finalHtml };
+      });
+    } catch (e) {
+      console.error("高亮处理失败:", e);
+      return sanitizedSections; // 出错时返回原始内容
+    }
+  }, [searchTerm, fullHtmlContent, isExpanded]);
+
+  // 【新增】搜索执行函数
+  const handleSearchExecution = (value) => {
+    const term = value.trim();
+    setSearchTerm(term);
+    setCurrentResultIndex(-1);
+    setSearchResults([]);
+
+    if (!term) {
+      return; // 如果清空搜索，直接返回
+    }
+
+    // 使用 setTimeout 等待 displayedContent 的 useMemo 计算完成并且DOM更新
+    setTimeout(() => {
+      if (contentRef.current) {
+        const results = Array.from(contentRef.current.querySelectorAll('.search-highlight'));
+        setSearchResults(results);
+        if (results.length > 0) {
+          setCurrentResultIndex(0); // 自动定位到第一个结果
+          message.success(`找到了 ${results.length} 个匹配项。`);
+        } else {
+          message.info('在正文中未找到匹配项。');
+        }
+      }
+    }, 100); // 100毫秒延迟通常足够让React完成渲染
+  };
+
+  // 【修复-2】上/下一个按钮自动跳转
+  useLayoutEffect(() => {
+    if (searchResults.length > 0 && currentResultIndex >= 0) {
+      // 1. 移除上一个元素的 active class
+      searchResults.forEach(el => el.classList.remove('search-highlight-active'));
+
+      // 2. 为当前元素添加 active class
+      const currentElement = searchResults[currentResultIndex];
+      if (currentElement) {
+        currentElement.classList.add('search-highlight-active');
+        // 3. 滚动到当前元素
+        currentElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest'
+        });
+      }
+    }
+  }, [currentResultIndex, searchResults]);
+  
+  const handleNavigateResult = (direction) => {
+    if (searchResults.length === 0) return;
+    setCurrentResultIndex(prevIndex => {
+      const newIndex = prevIndex + direction;
+      if (newIndex >= searchResults.length) return 0; // 循环到第一个
+      if (newIndex < 0) return searchResults.length - 1; // 循环到最后一个
+      return newIndex;
+    });
+  };
+
+  const menuItems = buildTree(fullHtmlContent?.content);
+  const aiSummary = data?.summary || "暂无AI摘要";
+
   return (
-    <Card size="small" bordered style={{ borderStyle: "dashed" }}>
-      <Space direction="vertical" style={{ width: "100%" }}>
-        {/* AI摘要 和 "智能阅读" 按钮 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', textAlign:'left' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f9ff 100%)', padding: '16px', borderRadius: '8px', border: '1px solid #bae7ff', marginBottom: '12px' }}>
-              <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px', textAlign: 'left' }}>🤖 AI智能摘要</Title>
-              <Paragraph style={{ margin: 0, fontSize: '14px', lineHeight: '1.6' }}>{data.summary || "暂无摘要"}</Paragraph>
-            </div>
+    <>
+      <style>{`
+        .search-highlight {
+          background-color: yellow;
+          transition: background-color 0.3s ease;
+        }
+        .search-highlight-active {
+          background-color: orange;
+        }
+      `}</style>
+
+      <Card variant="bordered" style={{ borderStyle: "dashed", background: "#fafafa", textAlign: 'left' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, marginRight: 16, background: '#e6f7ff', padding: '16px', borderRadius: '8px', border: '1px solid #91d5ff' }}>
+            <Title level={5} style={{ margin: 0, color: '#1890ff', marginBottom: '8px' }}>🤖 AI智能摘要</Title>
+            <Paragraph style={{ margin: 0 }}>{aiSummary}</Paragraph>
           </div>
-          <Button type="primary" size="small" onClick={toggleExpand} style={{ marginLeft: 8, flexShrink: 0 }} icon={<BookOutlined />} loading={isFullContentLoading}>
+          <Button type="primary" size="small" onClick={toggleExpand} icon={<BookOutlined />} loading={isFullContentLoading}>
             {isExpanded ? '收起原文' : '智能阅读'}
           </Button>
         </div>
-        
-        {/* 智能阅读展开区域 */}
-        {isExpanded && (
-          <>
-            <Divider dashed style={{ margin: "8px 0" }} />
-            <div style={{ height: '70vh', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column' }}>
-              
-              {/* 搜索框UI */}
-              <div style={{ display: 'flex', gap: '8px', marginBottom: 16, flexShrink: 0, alignItems: 'center' }}>
-                <Input.Search
-                  placeholder="在正文中搜索关键词..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onSearch={handleSearchInContent} // 当用户按回车或点击搜索图标时触发
-                  allowClear
-                  enterButton // 显示一个搜索按钮
-                  style={{ flex: 1 }}
-                />
-                {searchResults.length > 0 && (
-                  <>
-                    <Button icon={<UpOutlined />} onClick={handlePrevResult} size="small" />
-                    <Text style={{ whiteSpace: 'nowrap' }}>{currentResultIndex + 1} / {searchResults.length}</Text>
-                    <Button icon={<DownOutlined />} onClick={handleNextResult} size="small" />
-                  </>
-                )}
-                {fullHtmlContent.url && (
-                  <Button type="link" icon={<LinkOutlined />} href={fullHtmlContent.url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto' }}>
-                    在维基百科中查看原文
-                  </Button>
-                )}
-              </div>
+      </Card>
 
-              {/* 目录和内容区域 */}
-              {isFullContentLoading ? <Spin tip="正在加载原文..." /> : (
-                <Row gutter={24} style={{ flex: 1, overflow: 'hidden' }}>
-                  <Col span={6} style={{ height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
-                    <Menu
-                      mode="inline"
-                      items={menuItems}
-                      onClick={onMenuClick}
-                      onOpenChange={setMenuOpenKeys}
-                      openKeys={menuOpenKeys}
-                      style={{ border: 'none', paddingLeft: 0, textAlign: 'left', background: 'transparent' }}
-                    />
-                  </Col>
-                  <Col span={18} style={{ height: '100%' }}>
-                    <div
-                      ref={contentRef}
-                      style={{ padding: '0 16px', height: '100%', overflowY: 'auto', scrollBehavior: 'smooth', textAlign: 'left' }}
-                      onMouseOver={handleLinkMouseOver}
-                      onMouseOut={handleLinkMouseOut}
-                      onClick={handleLinkClick}
-                    >
-                      {fullHtmlContent?.content?.map((section, index) => (
-                        <div key={index} id={`wiki-section-${index}`} style={{ marginBottom: '24px' }}>
-                          <Title level={4} style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
-                            {section.title}
-                          </Title>
-                          <div
-                            style={{ lineHeight: '1.8' }}
-                            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(section.html_content || '') }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </Col>
-                </Row>
+      {isExpanded && (
+        <Card
+          variant="bordered"
+          style={{ marginTop: '16px', borderStyle: "dashed", background: "#fafafa", height: '85vh', display: 'flex', flexDirection: 'column', textAlign: 'left' }}
+          styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
+        >
+          <div style={{ flexShrink: 0, marginBottom: '16px' }}>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input.Search
+                placeholder="在正文中搜索..."
+                allowClear
+                onSearch={handleSearchExecution} // 【修复】绑定新的搜索执行函数
+                enterButton="搜索"
+              />
+              {searchResults.length > 0 && (
+                <Space.Compact>
+                  <Button disabled style={{minWidth: 70, color: 'rgba(0,0,0,0.88)'}}>{currentResultIndex + 1} / {searchResults.length}</Button>
+                  <Button icon={<UpOutlined />} onClick={() => handleNavigateResult(-1)} />
+                  <Button icon={<DownOutlined />} onClick={() => handleNavigateResult(1)} />
+                </Space.Compact>
               )}
-            </div>
-          </>
-        )}
-        
-        <Divider dashed style={{ margin: "8px 0" }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              {fullHtmlContent.url && <Button icon={<LinkOutlined />} href={fullHtmlContent.url} target="_blank" rel="noopener noreferrer">查看原文</Button>}
+            </Space.Compact>
+          </div>
+
+          <Row gutter={24} style={{ flex: 1, minHeight: 0 }}>
+            <Col span={6} style={{ height: '100%' }}>
+              <div style={{ height: '100%', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+                <Title level={5} style={{ marginTop: 0, flexShrink: 0 }}>目录</Title>
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {isFullContentLoading ? <Spin /> : (menuItems && menuItems.length > 0) ? (
+                    <Menu mode="inline" items={menuItems} onClick={({ key }) => handleScrollTo(key)} style={{ borderRight: 0, background: 'transparent' }} />
+                  ) : <Empty description='暂无目录' image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+                </div>
+              </div>
+            </Col>
+            <Col span={18} style={{ height: '100%' }}>
+              {/* 【修复】移除了外层的 onClick 事件，让链接可以自由、快速地响应 */}
+              <div 
+                ref={contentRef} 
+                onMouseOver={handleLinkMouseOver} 
+                onMouseOut={handleLinkMouseOut} 
+                style={{ height: '100%', overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', position: 'relative' }}>
+                {isFullContentLoading ? <div style={{textAlign: 'center', padding: 48}}><Spin tip="原文加载中..."/></div> : ((displayedContent && displayedContent.length > 0) ? (
+                  displayedContent.map((section) => (
+                    <div key={section.id} id={section.id}>
+                      <Title level={section.level === 1 ? 4 : Math.min(section.level + 2, 5)} style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: '8px', marginTop: 24 }}>
+                        {section.title}
+                      </Title>
+                      <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(section.html_content || '') }} />
+                    </div>
+                  ))
+                ) : ( <Empty description="暂无正文内容" image={Empty.PRESENTED_IMAGE_SIMPLE} /> ))}
+              </div>
+            </Col>
+          </Row>
+        </Card>
+      )}
+
+      <div style={{ marginTop: '16px' }}>
+        <Divider dashed style={{ margin: "0 0 8px 0" }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <Text strong>关键时间线</Text>
           <Space>
             <Button icon={<SaveOutlined />} size="small" onClick={handleSaveNotes}>保存</Button>
@@ -1084,30 +1085,28 @@ function WikiSummaryCard({ data, topic, setTopic, fullHtmlContent, isFullContent
           </Space>
         </div>
         <div style={{ border: '1px solid #f0f0f0', borderRadius: '8px', padding: '12px' }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-                {timelineItems.length > 0 ? (
-                    timelineItems.map(item => ( <EditableTimelineItem key={item.id} item={item} onChange={handleTimelineChange} onDelete={handleDeleteTimelineItem}/> ))
-                ) : ( <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="AI未能生成时间线，或您可以手动添加" /> )}
-                <Button type="dashed" onClick={handleAddTimelineItem} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>
-                    添加时间点
-                </Button>
-            </Space>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {timelineItems.length > 0 ? (
+              timelineItems.map(item => ( <EditableTimelineItem key={item.id} item={item} onChange={handleTimelineChange} onDelete={handleDeleteTimelineItem}/> ))
+            ) : ( <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="AI未能生成时间线，或您可以手动添加" /> )}
+            <Button type="dashed" onClick={handleAddTimelineItem} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>添加时间点</Button>
+          </Space>
         </div>
-      </Space>
+      </div>
 
-      <Popover
-        content={<div style={{ maxWidth: 400 }}>{popover.content}</div>}
-        open={popover.visible}
-        rootClassName="wiki-summary-popover" 
-        getPopupContainer={() => document.getElementById('main-content-area')}
-      >
-        <div style={{ position: 'fixed', left: popover.x, top: popover.y, width: 0, height: 0, }}/>
-      </Popover>
-    </Card>
+      {popover.visible && (
+        <div style={{ textAlign: 'left', position: 'fixed', top: `${popover.top}px`, left: `${popover.left}px`, zIndex: 2000, width: 350, boxShadow: '0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05)', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #f0f0f0', transition: 'opacity 0.2s, transform 0.2s', transform: 'scale(0.95)', opacity: 0, animation: 'fadeInScale 0.2s forwards' }} onMouseOver={() => clearTimeout(hideTimer.current)} onMouseOut={handleLinkMouseOut}>
+          <div style={{ padding: '12px 16px' }}>
+            <Title level={5} style={{margin: '0 0 8px 0'}}>{popover.title}</Title>
+            <div style={{maxHeight: '150px', overflowY: 'auto', fontSize: '13px'}}>{popover.content}</div>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes fadeInScale { to { transform: scale(1); opacity: 1; } }`}</style>
+    </>
   );
 }
 
-// --- 核心修改：调整 FactionRolesDisplay 组件的样式 ---
 function FactionRolesDisplay({ rolesData }) {
     if (!rolesData || rolesData.length === 0) {
         return null;
@@ -1178,7 +1177,7 @@ function ViewpointAnalysis({ data, topic }) {
     };
 
     return (
-      <Card size="small" bordered style={{ borderStyle: "dashed", textAlign:'left' }}>
+      <Card size="small" variant="bordered"  style={{ borderStyle: "dashed", textAlign:'left' }}>
         <Space direction="vertical" style={{ width: "100%" }}>
           <FactionRolesDisplay rolesData={data.faction_roles} />
 
@@ -1326,7 +1325,7 @@ function SourcesComparisonCard({ data }) {
   };
 
   return (
-    <Card size="small" bordered style={{ borderStyle: "dashed" }}>
+    <Card size="small" variant="bordered" style={{ borderStyle: "dashed" }}>
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1406,7 +1405,11 @@ function EditableCard({ card, onChange, onDelete }) {
     <Card 
       size="small" 
       style={{ width: '100%', marginBottom: 12, borderLeft: '3px solid #1677ff' }} 
-      bodyStyle={{padding: '12px'}}
+      styles={{
+        body: {
+          padding: '12px'
+        }
+      }}
     >
       <Space direction="vertical" style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1541,8 +1544,8 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
   };
 
   return (
-    <Card size="small" bordered style={{ borderStyle: 'dashed' }}>
-      <Space direction="vertical" style={{ width: '100%' }}>
+    <Card size="small" variant="bordered"  style={{ borderStyle: 'dashed' }}>
+      <Space direction="vertical" style={{ width: '100%', textAlign: 'left' }} size="middle">
         <Paragraph type="secondary">
           请运用批判性思维，形成您对历史事件的独特视角和判断。通过深度思考，培养历史批判思维能力，最终完成一份具有独立思考的历史调查报告。您可以自由编辑、增加或删除下方的思考卡片。
         </Paragraph>

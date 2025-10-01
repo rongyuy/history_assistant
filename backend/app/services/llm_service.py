@@ -109,7 +109,7 @@ def generate_summary_and_timeline(topic: str, wiki_content: str) -> dict:
         
     system_prompt = f"""
 你是一名专业的历史学家助手。你的任务是阅读提供的关于"{topic}"的维基百科文章全文，并从中提取关键信息。
-你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字。
+你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字，时间线要具体一点。
 **重要：所有输出内容必须使用简体中文，不能使用繁体字。**
 
 {{
