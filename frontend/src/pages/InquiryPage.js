@@ -1,3 +1,4 @@
+// InquiryPage.js
 import { useEffect, useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ReactFlowProvider  } from 'reactflow';
 import {
@@ -16,13 +17,12 @@ import {
   Tabs,
   Empty,
   FloatButton,
-  App as AntdApp, 
+  App as AntdApp,
   message,
-  Spin, 
+  Spin,
   Modal,
   Row,
   Col,
-  //Anchor,
   Popover,
   Menu,
 } from 'antd';
@@ -31,20 +31,22 @@ import {
   BulbOutlined,
   MessageOutlined,
   DeleteOutlined,
-  //EditOutlined,
   OrderedListOutlined,
   ApartmentOutlined,
   PlusOutlined,
-  SaveOutlined, 
-  DownloadOutlined, 
+  SaveOutlined,
+  DownloadOutlined,
   ClearOutlined,
-  ExclamationCircleFilled, 
+  ExclamationCircleFilled,
   LinkOutlined,
   UpOutlined, DownOutlined,
+  AudioOutlined, // <-- 新增图标
 } from '@ant-design/icons';
 import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails, getWikiPreview } from '../api';
 import ArgumentMap from '../ArgumentMap'
 import DOMPurify from 'dompurify'
+// 导入我们新建的 Hook
+import { useSpeechRecognition } from './useSpeechRecognition';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -160,8 +162,8 @@ export default function InquiryPage() {
             }}
           >
             {topic ? (
-              <CoreExplorer 
-                topic={topic} 
+              <CoreExplorer
+                topic={topic}
                 setTopic={setTopic}
                 addNodeToMap={addNodeToMap}
                 questProgress={questProgress}
@@ -223,10 +225,10 @@ function WelcomePage() {
                         <Paragraph type="secondary" style={{ fontSize: '16px', marginBottom: '24px' }}>
                             欢迎，未来的历史探索者！你将接受来自历史研究院的任务，通过四个维度的深度探索，完成一份完整的历史调查报告。
                         </Paragraph>
-                        <div style={{ 
-                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-                            padding: '20px', 
-                            borderRadius: '12px', 
+                        <div style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            padding: '20px',
+                            borderRadius: '12px',
                             color: 'white',
                             margin: '20px 0',
                             textAlign: 'left'
@@ -294,7 +296,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       setSelectedTextForMenu(currentSelectedText);
     }
   };
-  
+
   const menuItems = [
     {
       key: 'add-to-map',
@@ -340,7 +342,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       });
 
       message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
-      
+
       setInitialLoading(false);
 
       getWikiData(topic).then(res => {
@@ -433,7 +435,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   const handleActivateModule = async (moduleName) => {
     setCurrentModule(moduleName);
     setChatOpen(true);
-    
+
     // 根据模块名称确定任务类型
     let taskType = '';
     let context = '';
@@ -445,7 +447,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         return;
     }
     setActiveModule(moduleName);
-    
+
     switch (moduleName) {
       case '任务一：史实认知':
         taskType = '史实认知';
@@ -480,9 +482,9 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         aiPrompt = '';
     }
     // 更新AI上下文和聊天窗口状态
-    setAiContext(context); 
+    setAiContext(context);
     setShowChatDrawer(true);
-    setInitialAiPrompt(aiPrompt); 
+    setInitialAiPrompt(aiPrompt);
     setChatTaskType(taskType);
     // 如果任务已完成，显示完成状态
     if (questProgress.moduleStates[taskType] === 'completed') {
@@ -490,7 +492,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     } else {
       message.info(`🎯 AI 引导已切换到【${moduleName}】模块`);
     }
-    
+
     setAiContext(`${aiPrompt}\n\n学习材料:\n${context}`);
   };
 
@@ -502,14 +504,14 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         ...prev.moduleStates,
         [taskType]: 'completed'
       };
-      
+
       // 确定下一个任务
       let nextTask = '';
       if (taskType === '史实认知') nextTask = '观点辨析';
       else if (taskType === '观点辨析') nextTask = '史料分析';
       else if (taskType === '史料分析') nextTask = '历史批判思维训练（在笔记工作区）';
       else if (taskType === '历史批判思维训练') nextTask = '完成';
-      
+
       return {
         ...prev,
         completedModules: newCompletedModules,
@@ -517,7 +519,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         moduleStates: newModuleStates
       };
     });
-    
+
     // 显示完成消息和徽章
     const badgeMessages = {
       '史实认知': '🎉 恭喜！你已完成"史实认知"任务，获得"历史记录员"徽章！',
@@ -525,7 +527,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       '史料分析': '🎉 恭喜！你已完成"史料分析"任务，获得"证据收集者"徽章！',
       '历史批判思维训练': '🎉 恭喜！你已完成"历史批判思维训练"任务，获得"历史批判思想家"徽章！'
     };
-    
+
     message.success(badgeMessages[taskType]);
   };
 
@@ -570,10 +572,10 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
             items={[
               {
                 key: "facts",
-                label: <ModuleHeader 
-                  icon={<BookOutlined />} 
-                  title="任务一：史实认知" 
-                  hint="建立历史事件的基本框架" 
+                label: <ModuleHeader
+                  icon={<BookOutlined />}
+                  title="任务一：史实认知"
+                  hint="建立历史事件的基本框架"
                   onActivate={handleActivateModule}
                   isCompleted={questProgress.completedModules.includes('史实认知')}
                   taskState={questProgress.moduleStates['史实认知']}
@@ -585,8 +587,8 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                     </div>
                   ) : (
                     // 【修改】将原文相关的 state 和函数传递下去
-                    <WikiSummaryCard 
-                      data={coreData.wikiSummary} 
+                    <WikiSummaryCard
+                      data={coreData.wikiSummary}
                       setTopic={setTopic}
                       topic={topic}
                       fullHtmlContent={fullHtmlContent}
@@ -598,10 +600,10 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
               },
               {
                 key: "views",
-                label: <ModuleHeader 
-                  icon={<BulbOutlined />} 
-                  title="任务二：观点辨析" 
-                  hint="分析不同立场和争议" 
+                label: <ModuleHeader
+                  icon={<BulbOutlined />}
+                  title="任务二：观点辨析"
+                  hint="分析不同立场和争议"
                   onActivate={handleActivateModule}
                   isCompleted={questProgress.completedModules.includes('观点辨析')}
                   taskState={questProgress.moduleStates['观点辨析']}
@@ -618,10 +620,10 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
               },
               {
                 key: "sources",
-                label: <ModuleHeader 
-                  icon={<BookOutlined />} 
-                  title="任务三：史料分析" 
-                  hint="对比多方史料证据" 
+                label: <ModuleHeader
+                  icon={<BookOutlined />}
+                  title="任务三：史料分析"
+                  hint="对比多方史料证据"
                   onActivate={handleActivateModule}
                   isCompleted={questProgress.completedModules.includes('史料分析')}
                   taskState={questProgress.moduleStates['史料分析']}
@@ -640,7 +642,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
           />
         </Space>
       </Dropdown>
-      
+
        <AIChatDock
          topic={topic}
          addNodeToMap={addNodeToMap}
@@ -660,14 +662,14 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 function QuestProgress({ questProgress }) {
   const { completedModules, currentTask, totalTasks, moduleStates } = questProgress;
   const progress = (completedModules.length / totalTasks) * 100;
-  
+
   // 计算激活的任务数量
   const activeTasks = Object.values(moduleStates).filter(state => state === 'active' || state === 'completed').length;
-  
+
   return (
-    <div style={{ 
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-      padding: '12px 16px', 
+    <div style={{
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: '12px 16px',
       borderRadius: '8px',
       color: 'white',
       minWidth: '200px'
@@ -676,16 +678,16 @@ function QuestProgress({ questProgress }) {
         <Text strong style={{ color: 'white' }}>探索进度</Text>
         <Text style={{ color: 'white' }}>{completedModules.length}/{totalTasks}</Text>
       </div>
-      <div style={{ 
-        background: 'rgba(255,255,255,0.3)', 
-        borderRadius: '4px', 
+      <div style={{
+        background: 'rgba(255,255,255,0.3)',
+        borderRadius: '4px',
         height: '6px',
         marginBottom: '8px'
       }}>
-        <div style={{ 
-          background: 'white', 
-          height: '100%', 
-          borderRadius: '4px', 
+        <div style={{
+          background: 'white',
+          height: '100%',
+          borderRadius: '4px',
           width: `${progress}%`,
           transition: 'width 0.3s ease'
         }} />
@@ -702,7 +704,7 @@ function QuestProgress({ questProgress }) {
 
 function ModuleHeader({ icon, title, hint, onActivate, isCompleted = false, taskState = 'pending' }) {
     const handleActivateClick = (e) => {
-      e.stopPropagation(); 
+      e.stopPropagation();
       onActivate(title);
     }
 
@@ -768,19 +770,21 @@ function EditableTimelineItem({ item, onChange, onDelete }) {
     </div>
   );
 }
+// InquiryPage.js
+
+// ... (文件顶部的 imports 和其他组件保持不变) ...
 
 function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, ensureFullContentFetched }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentRef = useRef(null);
-  const { message, modal } = AntdApp.useApp();
-  const { confirm } = modal;
+  const { message } = AntdApp.useApp();
 
-  const [popover, setPopover] = useState({ visible: false, content: null, title: '', top: 0, left: 0, });
+  const [popover, setPopover] = useState({ visible: false, content: null, title: '', top: 0, left: 0 });
   const hideTimer = useRef(null);
   const currentTargetRef = useRef(null);
   const summaryCache = useRef(new Map()).current;
 
-  // --- 搜索功能 State ---
+  // --- 【修改】搜索功能 State ---
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(-1);
@@ -792,20 +796,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
       setTimelineItems(data.timeline.map((item, index) => ({ ...item, id: `timeline-${index}` })));
     }
   }, [data]);
-
-  // useEffect(() => {
-  //   const contentEl = contentRef.current;
-  //   if (!contentEl) return;
-  //   const handleScroll = () => {
-  //     if (popover.visible) {
-  //       setPopover(p => ({ ...p, visible: false }));
-  //       currentTargetRef.current = null;
-  //       clearTimeout(hideTimer.current);
-  //     }
-  //   };
-  //   contentEl.addEventListener('scroll', handleScroll, { passive: true });
-  //   return () => contentEl.removeEventListener('scroll', handleScroll);
-  // }, [popover.visible]);
 
   const handleLinkMouseOver = useCallback(async (e) => {
     const target = e.target.closest('a[href^="https://zh.wikipedia.org/wiki/"]');
@@ -832,31 +822,34 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     if (left < 0) { left = GAP; }
     if (target === currentTargetRef.current) { setPopover({ visible: true, content: summaryText, title: term, top, left }); }
   }, [topic, summaryCache]);
-  const handleLinkMouseOut = useCallback(() => { currentTargetRef.current = null; hideTimer.current = setTimeout(() => { setPopover(p => ({ ...p, visible: false })); }, 200); }, []);
 
+  const handleLinkMouseOut = useCallback(() => { currentTargetRef.current = null; hideTimer.current = setTimeout(() => { setPopover(p => ({ ...p, visible: false })); }, 200); }, []);
   const handleTimelineChange = (id, field, value) => { setTimelineItems(items => items.map(item => item.id === id ? { ...item, [field]: value } : item)); };
   const handleAddTimelineItem = () => { setTimelineItems(items => [...items, { id: `timeline-new-${Date.now()}`, year: '', event: '' }]); };
   const handleDeleteTimelineItem = (id) => { setTimelineItems(items => items.filter(item => item.id !== id)); };
   const handleSaveNotes = () => { message.success('笔记已保存！(模拟)'); };
   const handleExport = () => { if (timelineItems.length === 0) { message.warning('没有可导出的时间线内容。'); return; } const content = timelineItems.map(item => `${item.year}: ${item.event}`).join('\n'); const blob = new Blob([content], { type: 'text/plain;charset=utf-8' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${topic || '未命名主题'}-时间线.txt`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); message.success('时间线已导出为 .txt 文件！'); };
   const handleClearTimeline = () => { Modal.confirm({ title: '您确定要清空所有时间线吗？', icon: <ExclamationCircleFilled />, content: '这个操作无法撤销。', okText: '确认清空', okType: 'danger', cancelText: '取消', onOk() { setTimelineItems([]); message.info('时间线已清空。'); }, }); };
+
   const toggleExpand = useCallback(async () => {
     const nextState = !isExpanded;
     setIsExpanded(nextState);
     if (nextState && !fullHtmlContent) {
       await ensureFullContentFetched();
     }
-    // 【修复】展开或收起时，清空上一次的搜索状态
+    // 展开或收起时，清空上一次的搜索状态
     setSearchTerm('');
     setSearchResults([]);
     setCurrentResultIndex(-1);
   }, [isExpanded, fullHtmlContent, ensureFullContentFetched]);
+
   const handleScrollTo = (key) => {
     const element = document.getElementById(key);
     if (element && contentRef.current) {
         element.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
+
   const buildTree = (list) => {
     if (!list || list.length === 0) return [];
     const mapToMenuItems = (nodes) => nodes.map(node => {
@@ -886,39 +879,34 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
 
   const displayedContent = useMemo(() => {
     if (!isExpanded || !fullHtmlContent?.content) return [];
-
-    // 先对原始HTML进行净化，这是最安全的第一步
     const sanitizedSections = fullHtmlContent.content.map(section => ({
       ...section,
       html_content: DOMPurify.sanitize(section.html_content || '')
     }));
-
-    // 如果没有搜索词，直接返回净化后的内容
     if (!searchTerm) {
       return sanitizedSections;
     }
-
-    // 如果有搜索词，在净化后的HTML字符串上进行安全的高亮处理
     try {
-      // 创建一个安全的正则表达式，避免特殊字符干扰
       const safeRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
       return sanitizedSections.map(section => {
-        // 关键修复：只替换不在HTML标签内部的文本
-        // 我们通过一个技巧实现：先用一个特殊标记替换掉所有HTML标签，
-        // 然后在剩下的纯文本上进行高亮替换，最后再把HTML标签恢复回去。
         const placeholders = [];
         let placeholderId = 0;
         
-        // 1. 抽取所有HTML标签，用占位符替换
-        const textOnly = section.html_content.replace(/<[^>]*>/g, (match) => {
+        // 1. 先移除已存在的高亮标签，避免嵌套
+        let cleanHtml = section.html_content.replace(/<span class="search-highlight[^"]*">(.*?)<\/span>/gi, '$1');
+        
+        // 2. 抽取所有HTML标签，用占位符替换
+        const textOnly = cleanHtml.replace(/<[^>]*>/g, (match) => {
           placeholders.push(match);
           return `__HTML_PLACEHOLDER_${placeholderId++}__`;
         });
         
-        // 2. 在纯文本上进行高亮替换
-        const highlightedText = textOnly.replace(safeRegex, match => `<span class="search-highlight">${match}</span>`);
+        // 3. 在纯文本上进行高亮替换，确保每个匹配项都是独立的
+        const highlightedText = textOnly.replace(safeRegex, (match, offset) => {
+          return `<span class="search-highlight" data-offset="${offset}">${match}</span>`;
+        });
         
-        // 3. 将HTML标签恢复回去
+        // 4. 将HTML标签恢复回去
         let finalHtml = highlightedText;
         for (let i = 0; i < placeholders.length; i++) {
           finalHtml = finalHtml.replace(`__HTML_PLACEHOLDER_${i}__`, placeholders[i]);
@@ -928,47 +916,21 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
       });
     } catch (e) {
       console.error("高亮处理失败:", e);
-      return sanitizedSections; // 出错时返回原始内容
+      return sanitizedSections;
     }
   }, [searchTerm, fullHtmlContent, isExpanded]);
 
-  // 【新增】搜索执行函数
-  const handleSearchExecution = (value) => {
-    const term = value.trim();
-    setSearchTerm(term);
-    setCurrentResultIndex(-1);
-    setSearchResults([]);
-
-    if (!term) {
-      return; // 如果清空搜索，直接返回
-    }
-
-    // 使用 setTimeout 等待 displayedContent 的 useMemo 计算完成并且DOM更新
-    setTimeout(() => {
-      if (contentRef.current) {
-        const results = Array.from(contentRef.current.querySelectorAll('.search-highlight'));
-        setSearchResults(results);
-        if (results.length > 0) {
-          setCurrentResultIndex(0); // 自动定位到第一个结果
-          message.success(`找到了 ${results.length} 个匹配项。`);
-        } else {
-          message.info('在正文中未找到匹配项。');
-        }
-      }
-    }, 100); // 100毫秒延迟通常足够让React完成渲染
-  };
-
-  // 【修复-2】上/下一个按钮自动跳转
+  // --- 【核心修改】使用 useLayoutEffect 确保滚动 ---
   useLayoutEffect(() => {
     if (searchResults.length > 0 && currentResultIndex >= 0) {
       // 1. 移除上一个元素的 active class
       searchResults.forEach(el => el.classList.remove('search-highlight-active'));
 
-      // 2. 为当前元素添加 active class
+      // 2. 为当前元素添加 active class 并滚动
       const currentElement = searchResults[currentResultIndex];
+      
       if (currentElement) {
         currentElement.classList.add('search-highlight-active');
-        // 3. 滚动到当前元素
         currentElement.scrollIntoView({
           behavior: 'smooth',
           block: 'center',
@@ -976,16 +938,53 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
         });
       }
     }
-  }, [currentResultIndex, searchResults]);
-  
+  }, [currentResultIndex]); // 【修复】只依赖 currentResultIndex，不依赖 searchResults
+
+  const handleSearchExecution = (value) => {
+    const term = value.trim();
+    setSearchTerm(term);
+
+    // 清空旧状态
+    setCurrentResultIndex(-1);
+    setSearchResults([]);
+
+    if (!term) {
+      return;
+    }
+
+    // 使用 setTimeout 等待 useMemo 和 DOM 更新
+    setTimeout(() => {
+      if (contentRef.current) {
+        const results = Array.from(contentRef.current.querySelectorAll('.search-highlight'));
+        setSearchResults(results); // 更新结果
+        if (results.length > 0) {
+          setCurrentResultIndex(0); // 更新索引，这将触发 useLayoutEffect
+          message.success(`找到了 ${results.length} 个匹配项。`);
+        } else {
+          message.info('在正文中未找到匹配项。');
+        }
+      }
+    }, 100);
+  };
+
+  // --- 【修改】导航函数只负责更新索引 ---
   const handleNavigateResult = (direction) => {
     if (searchResults.length === 0) return;
     setCurrentResultIndex(prevIndex => {
       const newIndex = prevIndex + direction;
-      if (newIndex >= searchResults.length) return 0; // 循环到第一个
-      if (newIndex < 0) return searchResults.length - 1; // 循环到最后一个
+      if (newIndex >= searchResults.length) return 0;
+      if (newIndex < 0) return searchResults.length - 1;
       return newIndex;
     });
+  };
+
+  // --- 【新增】处理搜索框清除事件 ---
+  const handleSearchChange = (e) => {
+    if (e.target.value.trim() === '') {
+      setSearchTerm('');
+      setSearchResults([]);
+      setCurrentResultIndex(-1);
+    }
   };
 
   const menuItems = buildTree(fullHtmlContent?.content);
@@ -993,6 +992,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
 
   return (
     <>
+      {/* --- 【新增】优化高亮样式 --- */}
       <style>{`
         .search-highlight {
           background-color: yellow;
@@ -1000,6 +1000,8 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
         }
         .search-highlight-active {
           background-color: orange;
+          color: white;
+          border-radius: 3px;
         }
       `}</style>
 
@@ -1026,7 +1028,8 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
               <Input.Search
                 placeholder="在正文中搜索..."
                 allowClear
-                onSearch={handleSearchExecution} // 【修复】绑定新的搜索执行函数
+                onSearch={handleSearchExecution}
+                onChange={handleSearchChange} // 【新增】绑定 onChange
                 enterButton="搜索"
               />
               {searchResults.length > 0 && (
@@ -1052,11 +1055,10 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
               </div>
             </Col>
             <Col span={18} style={{ height: '100%' }}>
-              {/* 【修复】移除了外层的 onClick 事件，让链接可以自由、快速地响应 */}
-              <div 
-                ref={contentRef} 
-                onMouseOver={handleLinkMouseOver} 
-                onMouseOut={handleLinkMouseOut} 
+              <div
+                ref={contentRef}
+                onMouseOver={handleLinkMouseOver}
+                onMouseOut={handleLinkMouseOut}
                 style={{ height: '100%', overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', position: 'relative' }}>
                 {isFullContentLoading ? <div style={{textAlign: 'center', padding: 48}}><Spin tip="原文加载中..."/></div> : ((displayedContent && displayedContent.length > 0) ? (
                   displayedContent.map((section) => (
@@ -1106,7 +1108,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     </>
   );
 }
-
 function FactionRolesDisplay({ rolesData }) {
     if (!rolesData || rolesData.length === 0) {
         return null;
@@ -1158,7 +1159,7 @@ function ViewpointAnalysis({ data, topic }) {
 
         setLoading(true);
         setSelectedDebate(debateItem);
-        
+
         try {
             const response = await getDiscussionDetails(topic, debateItem);
             setDetailedViewpoints(response.data.detailed_viewpoints || []);
@@ -1186,9 +1187,9 @@ function ViewpointAnalysis({ data, topic }) {
             header={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text strong>维基讨论页摘录（要点）</Text>
-                <Button 
-                  type="link" 
-                  size="small" 
+                <Button
+                  type="link"
+                  size="small"
                   loading={loading}
                   onClick={handleShowFullDiscussion}
                   style={{ padding: 0 }}
@@ -1199,8 +1200,8 @@ function ViewpointAnalysis({ data, topic }) {
             }
             dataSource={data.debates || []}
             renderItem={(debateItem, index) => (
-              <List.Item 
-                style={{ 
+              <List.Item
+                style={{
                   cursor: 'pointer',
                   backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
                   borderRadius: '4px',
@@ -1223,9 +1224,9 @@ function ViewpointAnalysis({ data, topic }) {
           {showFullDiscussion && data.full_discussion && (
             <>
               <Divider dashed style={{ margin: "8px 0" }} />
-              <div style={{ 
-                backgroundColor: '#f8f9fa', 
-                padding: '12px', 
+              <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '12px',
                 borderRadius: '6px',
                 border: '1px solid #e9ecef',
                 maxHeight: '400px',
@@ -1234,8 +1235,8 @@ function ViewpointAnalysis({ data, topic }) {
                 <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
                   维基百科讨论页完整内容
                 </Title>
-                <div style={{ 
-                  whiteSpace: 'pre-wrap', 
+                <div style={{
+                  whiteSpace: 'pre-wrap',
                   fontSize: '13px',
                   lineHeight: '1.6',
                   color: '#495057'
@@ -1254,9 +1255,9 @@ function ViewpointAnalysis({ data, topic }) {
           {selectedDebate && detailedViewpoints.length > 0 && (
             <>
               <Divider dashed style={{ margin: "8px 0" }} />
-              <div style={{ 
-                backgroundColor: '#f0f9ff', 
-                padding: '12px', 
+              <div style={{
+                backgroundColor: '#f0f9ff',
+                padding: '12px',
                 borderRadius: '6px',
                 border: '1px solid #bae7ff',
                 textAlign:'left'
@@ -1290,9 +1291,9 @@ function ViewpointAnalysis({ data, topic }) {
           {selectedDebate && detailedViewpoints.length === 0 && !loading && (
             <>
               <Divider dashed style={{ margin: "8px 0" }} />
-              <div style={{ 
-                backgroundColor: '#fff7e6', 
-                padding: '12px', 
+              <div style={{
+                backgroundColor: '#fff7e6',
+                padding: '12px',
                 borderRadius: '6px',
                 border: '1px solid #ffd591',
                 textAlign: 'center'
@@ -1327,7 +1328,7 @@ function SourcesComparisonCard({ data }) {
   return (
     <Card size="small" variant="bordered" style={{ borderStyle: "dashed" }}>
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
-        
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ textAlign: 'left' }}>
             <Text strong>多史料片段对读</Text>
@@ -1343,7 +1344,7 @@ function SourcesComparisonCard({ data }) {
             {showReferences ? '收起所有参考文献' : `查看所有参考文献 (${references.length})`}
           </Button>
         </div>
-        
+
         {showReferences && (
           <div style={{
               backgroundColor: '#f8f9fa',
@@ -1400,16 +1401,25 @@ function SourcesComparisonCard({ data }) {
   );
 }
 
+// ------------------- 【修改点 1】: EditableCard 组件 -------------------
 function EditableCard({ card, onChange, onDelete }) {
+
+  // 使用语音识别 Hook
+  const { isListening, startListening } = useSpeechRecognition(
+    // 识别完成后的回调函数
+    (transcript) => {
+      // 将识别出的文本追加到现有内容后面
+      const newContent = card.content ? `${card.content}\n${transcript}` : transcript;
+      onChange(card.id, 'content', newContent);
+      message.success('语音输入已完成');
+    }
+  );
+
   return (
-    <Card 
-      size="small" 
-      style={{ width: '100%', marginBottom: 12, borderLeft: '3px solid #1677ff' }} 
-      styles={{
-        body: {
-          padding: '12px'
-        }
-      }}
+    <Card
+      size="small"
+      style={{ width: '100%', marginBottom: 12, borderLeft: '3px solid #1677ff' }}
+      styles={{ body: { padding: '12px' } }}
     >
       <Space direction="vertical" style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1427,17 +1437,36 @@ function EditableCard({ card, onChange, onDelete }) {
             onClick={() => onDelete(card.id)}
           />
         </div>
-        <TextArea
-          variant="filled"
-          rows={3}
-          value={card.content}
-          onChange={(e) => onChange(card.id, 'content', e.target.value)}
-          placeholder={card.placeholder || '请输入内容...'}
-        />
+        {/* 将 TextArea 和 语音按钮 放入一个相对定位的容器中 */}
+        <div style={{ position: 'relative', width: '100%' }}>
+          <TextArea
+            variant="filled"
+            rows={3}
+            value={card.content}
+            onChange={(e) => onChange(card.id, 'content', e.target.value)}
+            placeholder={card.placeholder || '请输入内容...'}
+          />
+          {/* 语音按钮，绝对定位于右下角 */}
+          <Button
+            type="text"
+            icon={<AudioOutlined />}
+            onClick={startListening}
+            loading={isListening}
+            style={{
+              position: 'absolute',
+              right: 8,
+              bottom: 8,
+              zIndex: 10,
+              color: isListening ? '#1677ff' : 'rgba(0, 0, 0, 0.45)',
+            }}
+            title="点击开始语音输入"
+          />
+        </div>
       </Space>
     </Card>
   );
 }
+// ------------------- 【修改点 1 结束】 -------------------
 
 function HistoricalCriticalThinkingSection({ questProgress, onCompleteAllTasks }) {
   const initialCards = [
@@ -1447,7 +1476,7 @@ function HistoricalCriticalThinkingSection({ questProgress, onCompleteAllTasks }
     { id: 4, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天有什么启示？' },
     { id: 5, title: '批判性结论', content: '', placeholder: '基于批判性思维，我的最终历史判断是什么？为什么？' },
   ];
-  
+
   const [cards, setCards] = useState(initialCards);
 
   const handleCardChange = (id, field, value) => {
@@ -1499,7 +1528,7 @@ ${content.trim()}
     document.body.removeChild(link);
     message.success('已导出为 TXT 文件！');
   };
-  
+
   const handleSave = () => {
     message.success('内容已保存！');
     // 检查是否完成因果链分析任务
@@ -1509,7 +1538,7 @@ ${content.trim()}
   };
 
   const handleClear = () => {
-    setCards(initialCards.map(c => ({...c, content: ''}))); 
+    setCards(initialCards.map(c => ({...c, content: ''})));
     message.info('所有卡片内容已清空。');
   };
 
@@ -1549,7 +1578,7 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
         <Paragraph type="secondary">
           请运用批判性思维，形成您对历史事件的独特视角和判断。通过深度思考，培养历史批判思维能力，最终完成一份具有独立思考的历史调查报告。您可以自由编辑、增加或删除下方的思考卡片。
         </Paragraph>
-        
+
         {cards.map(card => (
           <EditableCard
             key={card.id}
@@ -1581,8 +1610,8 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
             清空
           </Button>
           {questProgress?.completedModules?.length >= 3 && (
-            <Button 
-              type="primary" 
+            <Button
+              type="primary"
               style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
               onClick={handleGenerateFinalReport}
             >
@@ -1595,6 +1624,7 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
   );
 }
 
+// ------------------- 【修改点 2】: AIChatDock 组件 -------------------
 function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
@@ -1610,6 +1640,15 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     const [loading, setLoading] = useState(false);
     const { message } = AntdApp.useApp();
     const [selectedMenuText, setSelectedMenuText] = useState('');
+
+    // 使用语音识别 Hook
+    const { isListening, startListening } = useSpeechRecognition(
+      // 识别完成后的回调函数
+      (transcript) => {
+        // 将识别结果设置到输入框
+        setChatValue(prev => prev + transcript);
+      }
+    );
 
     const menuItemsForAIMessage = (fullText) => [
         {
@@ -1638,7 +1677,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
             setDrawerHeight(newHeight);
         }
     }, []);
-    
+
     const handleMouseUp = useCallback(() => {
       isResizing.current = false;
       document.body.style.cursor = 'default';
@@ -1649,8 +1688,8 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
 
     const handleMouseDown = useCallback((e) => {
         isResizing.current = true;
-        document.body.style.cursor = 'ns-resize'; 
-        document.body.style.userSelect = 'none'; 
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
     }, [handleMouseMove, handleMouseUp]);
@@ -1793,7 +1832,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                 </div>
                 <Space.Compact style={{ width: "100%", marginTop: 8 }}>
                     <Input.TextArea
-                        placeholder={loading ? "AI正在思考..." : "输入你的想法/问题，Enter 发送 (Shift+Enter换行)"}
+                        placeholder={isListening ? "正在聆听..." : (loading ? "AI正在思考..." : "输入你的想法/问题，Enter 发送 (Shift+Enter换行)")}
                         value={chatValue}
                         onChange={(e) => setChatValue(e.target.value)}
                         onPressEnter={(e) => {
@@ -1802,19 +1841,26 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                               send();
                             }
                         }}
-                        disabled={loading}
+                        disabled={loading || isListening}
                         autoSize={{ minRows: 1, maxRows: 5 }}
                     />
+                     <Button
+                        icon={<AudioOutlined />}
+                        onClick={startListening}
+                        loading={isListening}
+                        disabled={loading}
+                        title="点击开始语音输入"
+                     />
                      <Button type="primary" onClick={send} loading={loading}>发送</Button>
                  </Space.Compact>
-                 
+
                  {/* 完成任务按钮 */}
                  {currentModule && !questProgress.completedModules.includes(currentModule.replace('任务一：', '').replace('任务二：', '').replace('任务三：', '').replace('任务四：', '')) && (
                      <div style={{ marginTop: 8, textAlign: 'center' }}>
-                         <Button 
-                             type="primary" 
-                             style={{ 
-                                 background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)', 
+                         <Button
+                             type="primary"
+                             style={{
+                                 background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
                                  border: 'none',
                                  borderRadius: '6px'
                              }}
@@ -1836,6 +1882,8 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
          </Drawer>
      );
  }
+// ------------------- 【修改点 2 结束】 -------------------
+
 
 function NotesWorkspace({
   topic,
