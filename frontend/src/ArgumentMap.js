@@ -235,7 +235,7 @@ export default function ArgumentMap({
             type="primary"
             style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
           >
-            {isGeneratingMap ? 'AI分析中...' : '基于批判思维生成图谱'}
+            {isGeneratingMap ? 'AI分析中...' : '基于批判性思维训练生成图谱'}
           </Button>
           <Button icon={<PlusOutlined />} onClick={addBlankNode}>
             添加卡片

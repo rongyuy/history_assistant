@@ -258,6 +258,9 @@ function WelcomePage() {
 }
 
 function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestProgress }) {
+  const [msgs, setMsgs] = useState([
+        { role: 'ai', text: '🏛️ 欢迎，历史探索者！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？' },
+    ]);
   const [loadingStates, setLoadingStates] = useState({
     summary: true,
     viewpoints: true,
@@ -433,20 +436,34 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   };
 
   const handleActivateModule = async (moduleName) => {
+    // 如果点击的是当前已激活的模块，或者AI正在加载，则不作任何操作
+    if (activeModule === moduleName || loadingStates.summary || loadingStates.viewpoints || loadingStates.sources) {
+        setChatOpen(true); // 仍然确保聊天窗口是打开的
+        return;
+    }
     setCurrentModule(moduleName);
     setChatOpen(true);
+    setActiveModule(moduleName);
+
+    const welcomeMessages = {
+        '任务一：史实认知': '我们已进入【史实认知】模块。请先阅读上方的摘要和时间线，然后可以点击“智能阅读”深入探索原文。准备好后，我们就可以开始提问式学习了。',
+        '任务二：观点辨析': '现在是【观点辨析】模块。这里列出了关于此事件的不同阵营作用和主要争议点，让我们一同分析其来源与立场。',
+        '任务三：史料分析': '欢迎来到【史料分析】模块。这里展示了从不同来源搜集到的史料片段，我将协助您进行对比与质询。',
+    };
+
+    const welcomeText = welcomeMessages[moduleName] || `已激活【${moduleName}】模块。`;
+
+    // 创建一条新的AI欢迎消息，并添加到聊天记录中
+    const moduleWelcomeMessage = {
+        role: 'ai',
+        text: welcomeText,
+    };
+    setMsgs(prevMsgs => [...prevMsgs, moduleWelcomeMessage]);
 
     // 根据模块名称确定任务类型
     let taskType = '';
     let context = '';
     let aiPrompt = '';
-    // 如果当前没有激活的模块，或者点击的是已激活的模块，则什么都不做
-    if (activeModule === moduleName) {
-        // 可以选择收起或保持不变
-        // setActiveModule(null);
-        return;
-    }
-    setActiveModule(moduleName);
 
     switch (moduleName) {
       case '任务一：史实认知':
@@ -645,6 +662,8 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
        <AIChatDock
          topic={topic}
+         msgs={msgs}          // <--- 添加这行
+         setMsgs={setMsgs} 
          addNodeToMap={addNodeToMap}
          currentModule={currentModule}
          aiContext={aiContext}
@@ -770,9 +789,6 @@ function EditableTimelineItem({ item, onChange, onDelete }) {
     </div>
   );
 }
-// InquiryPage.js
-
-// ... (文件顶部的 imports 和其他组件保持不变) ...
 
 function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, ensureFullContentFetched }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1401,7 +1417,6 @@ function SourcesComparisonCard({ data }) {
   );
 }
 
-// ------------------- 【修改点 1】: EditableCard 组件 -------------------
 function EditableCard({ card, onChange, onDelete }) {
 
   // 使用语音识别 Hook
@@ -1466,7 +1481,6 @@ function EditableCard({ card, onChange, onDelete }) {
     </Card>
   );
 }
-// ------------------- 【修改点 1 结束】 -------------------
 
 function HistoricalCriticalThinkingSection({ questProgress, onCompleteAllTasks }) {
   const initialCards = [
@@ -1624,8 +1638,7 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
   );
 }
 
-// ------------------- 【修改点 2】: AIChatDock 组件 -------------------
-function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask }) {
+function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask,msgs, setMsgs }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
     const RIGHT_OFFSET = `calc(${SIDER_WIDTH_PERCENT} + ${CONTENT_PADDING}px)`;
@@ -1633,10 +1646,6 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     const [drawerHeight, setDrawerHeight] = useState(360);
     const isResizing = useRef(false);
     const messagesEndRef = useRef(null);
-
-    const [msgs, setMsgs] = useState([
-        { role: 'ai', text: '🏛️ 欢迎，历史探索者！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？' },
-    ]);
     const [loading, setLoading] = useState(false);
     const { message } = AntdApp.useApp();
     const [selectedMenuText, setSelectedMenuText] = useState('');
@@ -1882,8 +1891,6 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
          </Drawer>
      );
  }
-// ------------------- 【修改点 2 结束】 -------------------
-
 
 function NotesWorkspace({
   topic,
