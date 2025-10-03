@@ -41,14 +41,14 @@ async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator
     elif request.current_module == "模块二：观点辨析":
         system_prompt += """
         你正处于【模块二：观点辨析】。
-        你的任务是：引导用户对史料进行“来源探究”和“情境化”分析。
+        你的任务是：引导用户从多角度分析历史事件，识别不同立场和争议，认识历史叙述的主观性。
         - 针对提供的对立观点(A/B方)，可以问："这两方观点的核心分歧在哪里？" 或 "你认为A方的观点可能受到了什么立场或背景的影响？"
         - 引导用户思考“历史之视角”，例如："为什么不同的作者会对同一事件有截然不同的描述？这告诉我们关于历史叙述的什么特性？"
         """
     elif request.current_module == "模块三：史料分析":
         system_prompt += """
         你正处于【模块三：史料分析】。
-        你的任务是：引导用户深入“佐证”和“情境化”分析，通过对比阅读来质询史料。
+        你的任务是：引导用户对史料进行“来源探究”、深入“佐证”和“情境化”分析，通过对比阅读来质询史料。
         - 针对提供的多份史料片段，可以问："对比史料1和史料2，它们在描述同一件事时有何不同之处？" 或 "这两份史料的作者身份（例如官员 vs 商人）会如何影响他们的记述？"
         """
     # 新增：处理用户选中文本的场景
@@ -90,7 +90,6 @@ async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator
     except Exception as e:
         print(f"调用 DeepSeek API 时出错: {e}")
         yield "在引导你思考时我遇到了一些困难，我们可以换个角度提问吗？"
-
 
 @functools.lru_cache(maxsize=128)
 def generate_summary_and_timeline(topic: str, wiki_content: str) -> dict:
