@@ -1,28 +1,18 @@
 # backend/app/services/wikipedia_service.py 
+
 import asyncio
 import httpx
 import wikipediaapi
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from app.services import llm_service 
 from app.services.scraping_service import fetch_url_content_async
 import requests
 from opencc import OpenCC
 from bs4 import BeautifulSoup
 import re 
-import os # 导入os模块用于文件操作
-
-# --- Debugging Setup ---
-DEBUG_FILE = "debug_output.txt"
-# 在服务启动时清空旧的调试文件
-if os.path.exists(DEBUG_FILE):
-    os.remove(DEBUG_FILE)
-
-def write_debug_log(header, content):
-    """一个简单的函数，用于将调试信息写入文件。"""
-    with open(DEBUG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"\n{'='*20} {header} {'='*20}\n")
-        f.write(content)
-        f.write("\n\n")
-# --- End Debugging Setup ---
+import os
+import json
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
@@ -314,11 +304,93 @@ def get_source_comparison(topic_name: str) -> dict:
 
 def get_wiki_structured_content(topic_name: str) -> dict:
     """
-    【最终稳定修正版 v8 + 详细调试】使用 MediaWiki Parse API 获取完整HTML并进行可靠解析。
+    【最终稳定修正版 v9】修复了内部链接转换的bug。
     """
     session = requests.Session()
     url = "https://zh.wikipedia.org/w/api.php"
     params = {"action": "parse", "page": topic_name, "prop": "text|displaytitle", "format": "json", "formatversion": "2"}
+    headers = {'User-Agent': 'HistoryAssistant/1.0 (your-email@example.com)'}
+    try:
+        response = session.get(url=url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        if "error" in data:
+            return {"title": f"找不到页面: '{topic_name}'", "summary": data["error"]["info"], "content": [], "url": ""}
+        page_title = data["parse"]["displaytitle"]
+        page_id = data["parse"]["pageid"]
+        page_url = f"https://zh.wikipedia.org/?curid={page_id}"
+        full_html = data.get("parse", {}).get("text")
+        if not full_html:
+            return {"title": convert_to_simplified(page_title), "summary": "此页面不包含可解析的正文内容。", "content": [], "url": page_url}
+        soup = BeautifulSoup(full_html, 'html.parser')
+        unwanted_selectors = ['.mw-editsection', '.noprint', '.mw-jump-link','.infobox', '.metadata', '.ambox', '.hatnote','.navbox', '.thumb', '.reflist', '#toc', '.sidebar', '.reference', '.gallery', 'table.mbox-small-left', 'style']
+        for selector in unwanted_selectors:
+            for tag in soup.select(selector):
+                tag.decompose()
+        for ref in soup.find_all("sup", class_="reference"):
+            ref.decompose()
+        
+        # --- ▼▼▼ 核心修复：移除了错误的 if ':' not in a['href'] 判断 ▼▼▼ ---
+        for a in soup.find_all('a', href=re.compile(r'^/wiki/')):
+            a['href'] = 'https://zh.wikipedia.org' + a['href']
+            a['target'] = '_blank'
+            a['rel'] = 'noopener noreferrer'
+        # --- ▲▲▲ 核心修复结束 ▲▲▲ ---
+
+        content_div = soup.find('div', class_='mw-parser-output')
+        if not content_div:
+            return {"title": convert_to_simplified(page_title), "summary": "无法找到页面的主内容区域。", "content": [], "url": page_url}
+        structured_content = []
+        unwanted_titles = ["参考文献", "参考资料", "外部链接", "参见", "註釋", "研究書目"]
+        current_section = { "level": 2, "title": "摘要", "id": "summary-section", "html_content": "" }
+        structured_content.append(current_section)
+        for element in content_div.find_all(recursive=False):
+            heading_tag = None
+            if element.name in ['h2', 'h3', 'h4', 'h5', 'h6']:
+                heading_tag = element
+            elif element.find(['h2', 'h3', 'h4', 'h5', 'h6']):
+                heading_tag = element.find(['h2', 'h3', 'h4', 'h5', 'h6'])
+            if heading_tag:
+                title = heading_tag.get_text(strip=True)
+                section_id = heading_tag.get('id')
+                if not section_id:
+                    section_id = f"section-{title.replace(' ', '_')}"
+                    heading_tag['id'] = section_id
+                if title:
+                    simplified_title = convert_to_simplified(title)
+                    if simplified_title in unwanted_titles: break
+                    if not any(d.get('title') == simplified_title for d in structured_content):
+                        new_section = {"level": int(heading_tag.name[1]), "title": simplified_title, "id": section_id or title.replace(" ", "_"), "html_content": ""}
+                        structured_content.append(new_section)
+                        current_section = new_section
+                else:
+                    current_section["html_content"] += str(element)
+            else:
+                current_section["html_content"] += str(element)
+        final_content = []
+        for section in structured_content:
+            section["html_content"] = convert_to_simplified(section["html_content"].strip())
+            if section['title'] == "摘要" and not section['html_content']:
+                continue
+            final_content.append(section)
+        final_data = {"title": convert_to_simplified(page_title), "content": final_content, "url": page_url}
+        return final_data
+    except Exception as e:
+        return {"title": "后端处理错误", "summary": f"解析维基百科页面时发生错误: {e}", "content": [], "url": ""} 
+
+
+def get_wiki_discussion_structured_content(topic_name: str) -> dict:
+    """
+    【最终修复版】修复了标题识别逻辑和内部链接转换，确保稳定解析并生成目录。
+    """
+    session = requests.Session()
+    retry_strategy = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["HEAD", "GET", "OPTIONS"])
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    url = "https://zh.wikipedia.org/w/api.php"
+    params = {"action": "parse", "page": f"Talk:{topic_name}", "prop": "text|displaytitle", "format": "json", "formatversion": "2"}
     headers = {'User-Agent': 'HistoryAssistant/1.0 (your-email@example.com)'}
 
     try:
@@ -327,133 +399,86 @@ def get_wiki_structured_content(topic_name: str) -> dict:
         data = response.json()
 
         if "error" in data:
-            return {"title": f"找不到页面: '{topic_name}'", "summary": data["error"]["info"], "content": [], "url": ""}
+            return {"title": f"找不到页面: '讨论:{topic_name}'", "content": [], "url": "", "toc": []}
 
         page_title = data["parse"]["displaytitle"]
         page_id = data["parse"]["pageid"]
         page_url = f"https://zh.wikipedia.org/?curid={page_id}"
-        full_html = data.get("parse", {}).get("text")
-        
-        write_debug_log("1. Raw HTML Content", full_html if full_html else "No HTML content retrieved.")
+        full_html = data.get("parse", {}).get("text", "")
 
         if not full_html:
-            return {"title": convert_to_simplified(page_title), "summary": "此页面不包含可解析的正文内容。", "content": [], "url": page_url}
+            return {"title": convert_to_simplified(page_title), "content": [], "url": page_url, "toc": []}
 
         soup = BeautifulSoup(full_html, 'html.parser')
         
-        # 移除不需要的元素
-        unwanted_selectors = ['.mw-editsection', '.noprint', '.mw-jump-link','.infobox', '.metadata', '.ambox', '.hatnote','.navbox', '.thumb', '.reflist', '#toc', '.sidebar', '.reference', '.gallery', 'table.mbox-small-left', 'style']
+        for edit_section in soup.select('.mw-editsection'):
+            edit_section.decompose()
+        unwanted_selectors = ['.noprint', '.mw-jump-link','.infobox', '.metadata', '.ambox', '.hatnote','.navbox', '.thumb', '.reflist', '.sidebar', '.reference', '.gallery', 'table.mbox-small-left', 'style', '.tmbox']
         for selector in unwanted_selectors:
             for tag in soup.select(selector):
                 tag.decompose()
-        for ref in soup.find_all("sup", class_="reference"):
-            ref.decompose()
         
-        # 转换链接
+        # --- ▼▼▼ 核心修复：移除了错误的 if ':' not in a['href'] 判断 ▼▼▼ ---
         for a in soup.find_all('a', href=re.compile(r'^/wiki/')):
-            if ':' not in a['href']:
-                a['href'] = 'https://zh.wikipedia.org' + a['href']
-                a['target'] = '_blank'
-                a['rel'] = 'noopener noreferrer'
+            a['href'] = 'https://zh.wikipedia.org' + a['href']
+            a['target'] = '_blank'
+            a['rel'] = 'noopener noreferrer'
+        # --- ▲▲▲ 核心修复结束 ▲▲▲ ---
 
         content_div = soup.find('div', class_='mw-parser-output')
         if not content_div:
-            return {"title": convert_to_simplified(page_title), "summary": "无法找到页面的主内容区域。", "content": [], "url": page_url}
-        
-        write_debug_log("2. Cleaned HTML Content", content_div.prettify())
+            return {"title": convert_to_simplified(page_title), "content": [], "url": page_url, "toc": []}
 
-        # ==================== 目录和摘要提取逻辑【最终修正版 v8】 ====================
         structured_content = []
         unwanted_titles = ["参考文献", "参考资料", "外部链接", "参见", "註釋", "研究書目"]
-        
-        # 步骤 1: 初始化，创建“摘要”部分作为第一个默认章节
-        current_section = {
-            "level": 2,
-            "title": "摘要",
-            "id": "summary-section",
-            "html_content": ""
-        }
-        structured_content.append(current_section)
-        write_debug_log("Init", "Created initial '摘要' section.")
-        
-        # 步骤 2: 遍历内容区域的所有直接子元素
+        current_section = None
+
         for element in content_div.find_all(recursive=False):
-            write_debug_log(f"--- Processing Element ---", f"Tag: {element.name}, Class: {element.get('class', [])}")
-            
             heading_tag = None
-            
-            # 检查当前元素是否是标题容器 (通常是一个 div) 或标题本身
             if element.name in ['h2', 'h3', 'h4', 'h5', 'h6']:
                 heading_tag = element
-            elif element.find(['h2', 'h3', 'h4', 'h5', 'h6']):
-                heading_tag = element.find(['h2', 'h3', 'h4', 'h5', 'h6'])
+            elif element.name == 'div' and element.find(['h2', 'h3', 'h4', 'h5', 'h6']):
+                 heading_tag = element.find(['h2', 'h3', 'h4', 'h5', 'h6'])
 
-            # 步骤 3: 如果是标题，则创建新章节；否则，将内容追加到当前章节
             if heading_tag:
-                write_debug_log("Found Heading Element", f"Tag: {heading_tag.name}")
-                
-                # 直接从标题标签获取文本和ID
                 title = heading_tag.get_text(strip=True)
-                section_id = heading_tag.get('id')
-                if not section_id:
-                    # 如果原生HTML没有ID，就自己创建一个
-                    section_id = f"section-{title.replace(' ', '_')}"
-                    heading_tag['id'] = section_id
+                section_id = heading_tag.get('id') or f"section-{re.sub(r'[^a-zA-Z0-9_-]', '', title.replace(' ', '_'))}"
                 
                 if title:
                     simplified_title = convert_to_simplified(title)
-                    write_debug_log("Extracted Headline", f"Title: '{simplified_title}', ID: '{section_id}'")
-
-                    if simplified_title in unwanted_titles:
-                        write_debug_log("Unwanted Title Found", f"Stopping parsing at '{simplified_title}'")
-                        break
+                    if simplified_title in unwanted_titles: break
                     
-                    # 检查是否已经存在同名标题，避免重复添加
-                    if not any(d.get('title') == simplified_title for d in structured_content):
-                        new_section = {
-                            "level": int(heading_tag.name[1]),
-                            "title": simplified_title,
-                            "id": section_id or title.replace(" ", "_"), # Fallback ID
-                            "html_content": ""
-                        }
-                        structured_content.append(new_section)
-                        current_section = new_section
-                        write_debug_log("Created New Section", f"Current section is now '{simplified_title}'")
-                    else:
-                         write_debug_log("Duplicate Title", f"Skipping duplicate section '{simplified_title}'")
-
-
-                else: # 如果标题标签没有文本，当作普通内容处理
-                    write_debug_log("Empty Heading Tag", "Appending to current section's content")
-                    current_section["html_content"] += str(element)
+                    current_section = {
+                        "level": int(heading_tag.name[1]),
+                        "title": simplified_title,
+                        "id": section_id,
+                        "html_content": ""
+                    }
+                    structured_content.append(current_section)
             else:
-                # 如果不是标题，就将这个元素的HTML追加到当前章节的内容中
-                write_debug_log("Found Content Element", f"Appending to '{current_section['title']}'")
-                current_section["html_content"] += str(element)
+                if current_section:
+                    current_section["html_content"] += str(element)
         
-        # 步骤 4: 清理和转换最终内容
-        final_content = []
         for section in structured_content:
             section["html_content"] = convert_to_simplified(section["html_content"].strip())
-            # 只有当摘要有内容，或者非摘要章节有标题时才添加
-            if section['title'] == "摘要" and not section['html_content']:
-                continue # 如果摘要为空，则不添加
-            final_content.append(section)
-        # ==================== 逻辑修正结束 ====================
+
+        toc_list = [
+            {"level": section["level"], "title": section["title"], "anchor_link": f"#{section['id']}"}
+            for section in structured_content
+        ]
         
-        final_data = {
+        return {
             "title": convert_to_simplified(page_title),
-            "content": final_content, 
+            "toc": toc_list,
+            "content": structured_content, 
             "url": page_url
         }
-        write_debug_log("3. Backend Processed Data (Final)", str(final_data))
-        
-        return final_data
 
     except Exception as e:
-        write_debug_log("FATAL ERROR in get_wiki_structured_content", str(e))
-        return {"title": "后端处理错误", "summary": f"解析维基百科页面时发生错误: {e}", "content": [], "url": ""}  
-            
+        return {"title": "后端处理错误", "content": [{"title": "错误", "id":"error-section", "html_content": f"解析维基百科页面时发生意外错误: {e}"}], "url": "", "toc": []}
+
+
+    
 def get_discussion_details(topic_name: str, debate_item: str) -> dict:
     """
     获取特定讨论要点的详细内容和多方观点分析

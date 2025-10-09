@@ -24,6 +24,17 @@ def get_wiki_html_content_endpoint(topic_name: str):
     """
     return wikipedia_service.get_wiki_structured_content(topic_name)
 
+# 【新增路由】获取讨论页的结构化HTML内容
+@router.get("/wiki/discussion-html-content/{topic_name}")
+def get_wiki_discussion_html_content_endpoint(topic_name: str):
+    """
+    获取用于智能阅读的、经过清理和结构化的维基百科【讨论页】内容。
+    """
+    # ▼▼▼ 请在这里加上下面这行代码 ▼▼▼
+    print(f"--- ROUTER ENTRY POINT HIT for topic: {topic_name} ---")
+    
+    return wikipedia_service.get_wiki_discussion_structured_content(topic_name)
+
 @router.get("/discussion-details/{topic_name}")
 def get_discussion_details(topic_name: str, debate_item: str):
     """

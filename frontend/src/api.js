@@ -33,6 +33,9 @@ export const getSourcesComparison = (topic) => {
   return apiClient.get(`/sources/${topic}`);
 };
 
+// 【新增API函数】
+export const getWikiDiscussionHtmlContent = (topic) => apiClient.get(`/wiki/discussion-html-content/${topic}`);
+
 // 封装获取讨论页详细内容的API
 export const getDiscussionDetails = (topic, debateItem) => {
     return apiClient.get(`/discussion-details/${topic}`, {

@@ -1,4 +1,5 @@
-// InquiryPage.js
+// src/pages/InquiryPage.js
+
 import { useEffect, useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ReactFlowProvider  } from 'reactflow';
 import {
@@ -40,19 +41,17 @@ import {
   ExclamationCircleFilled,
   LinkOutlined,
   UpOutlined, DownOutlined,
-  AudioOutlined, // <-- 新增图标
+  AudioOutlined,
 } from '@ant-design/icons';
-import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails, getWikiPreview } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails, getWikiPreview, getWikiDiscussionHtmlContent} from '../api';
 import ArgumentMap from '../ArgumentMap'
 import DOMPurify from 'dompurify'
-// 导入我们新建的 Hook
 import { useSpeechRecognition } from './useSpeechRecognition';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
-//配置 DOMPurify 以允许在新标签页打开链接
 DOMPurify.addHook('afterSanitizeAttributes', function (node) {
   if (node.tagName === 'A' && node.hasAttribute('href')) {
     node.setAttribute('target', '_blank');
@@ -65,15 +64,13 @@ export default function InquiryPage() {
   const [inputValue, setInputValue] = useState('');
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
-
-  // 任务进度状态 - 提升到主组件
   const [questProgress, setQuestProgress] = useState({
     completedModules: [],
     currentTask: '史实认知',
     totalTasks: 4,
     achievements: [],
     moduleStates: {
-      '史实认知': 'pending', // pending, active, completed
+      '史实认知': 'pending',
       '观点辨析': 'pending',
       '史料分析': 'pending',
       '历史批判思维训练': 'pending'
@@ -275,10 +272,9 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     sources: { sources: [] },
   });
 
-  // 【新增】将原文内容、加载状态、和AI上下文提升到这里管理
   const [fullHtmlContent, setFullHtmlContent] = useState('');
   const [isFullContentLoading, setIsFullContentLoading] = useState(false);
-  const [aiContext, setAiContext] = useState(''); // AI上下文
+  const [aiContext, setAiContext] = useState('');
   const [isChatOpen, setChatOpen] = useState(false);
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
   const [chatValue, setChatValue] = useState('');
@@ -286,9 +282,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   const [showChatDrawer, setShowChatDrawer] = useState(false);
   const [initialAiPrompt, setInitialAiPrompt] = useState('');
   const [chatTaskType, setChatTaskType] = useState('');
-
-  // 任务进度状态现在从父组件传入
-
   const [selectedTextForMenu, setSelectedTextForMenu] = useState('');
 
   const { message } = AntdApp.useApp();
@@ -350,7 +343,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
       getWikiData(topic).then(res => {
         setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
-        // 激活史实认知任务
         setQuestProgress(prev => ({
           ...prev,
           moduleStates: {
@@ -367,7 +359,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
       getViewpointAnalysis(topic).then(res => {
         setCoreData(prev => ({ ...prev, viewpoints: res.data }));
-        // 激活观点辨析任务
         setQuestProgress(prev => ({
           ...prev,
           moduleStates: {
@@ -384,13 +375,12 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
       getSourcesComparison(topic).then(res => {
         setCoreData(prev => ({ ...prev, sources: res.data }));
-        // 激活史料分析任务
         setQuestProgress(prev => ({
           ...prev,
           moduleStates: {
             ...prev.moduleStates,
             '史料分析': 'active',
-            '历史批判思维训练': 'active' // 同时激活历史批判思维训练任务
+            '历史批判思维训练': 'active'
           }
         }));
         message.info('📖 史料分析任务已激活！请对比多方史料，完成后可以进入笔记工作区进行历史批判思维训练。');
@@ -404,10 +394,9 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     fetchData();
   }, [topic, message]);
 
-  // 【新增】一个统一的函数来获取原文，它会自动处理缓存
   const ensureFullContentFetched = async () => {
-    if (fullHtmlContent && fullHtmlContent.content) { // 修改判断条件
-      return fullHtmlContent; // 如果已缓存，直接返回
+    if (fullHtmlContent && fullHtmlContent.content) {
+      return fullHtmlContent;
     }
     if (isFullContentLoading) {
       message.info("正在加载原文，请稍候...");
@@ -417,28 +406,25 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     setIsFullContentLoading(true);
     try {
       const res = await getWikiHtmlContent(topic);
-      // 直接检查返回的数据中是否有 content 数组
       if (res.data && res.data.content) {
-        setFullHtmlContent(res.data); // 将整个返回的对象存入 state
+        setFullHtmlContent(res.data);
         return res.data;
       } else {
-        // 如果没有 content，说明可能出错了或页面不存在
         throw new Error('返回的数据格式不正确或内容为空');
       }
     } catch (error) {
       console.error("加载维基百科内容失败:", error);
       message.error('加载原文失败');
-      setFullHtmlContent({ content: [] }); // 设置为空内容，避免渲染出错
-      return null; // 加载失败
+      setFullHtmlContent({ content: [] });
+      return null;
     } finally {
       setIsFullContentLoading(false);
     }
   };
 
   const handleActivateModule = async (moduleName) => {
-    // 如果点击的是当前已激活的模块，或者AI正在加载，则不作任何操作
     if (activeModule === moduleName || loadingStates.summary || loadingStates.viewpoints || loadingStates.sources) {
-        setChatOpen(true); // 仍然确保聊天窗口是打开的
+        setChatOpen(true);
         return;
     }
     setCurrentModule(moduleName);
@@ -452,15 +438,9 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     };
 
     const welcomeText = welcomeMessages[moduleName] || `已激活【${moduleName}】模块。`;
-
-    // 创建一条新的AI欢迎消息，并添加到聊天记录中
-    const moduleWelcomeMessage = {
-        role: 'ai',
-        text: welcomeText,
-    };
+    const moduleWelcomeMessage = { role: 'ai', text: welcomeText, };
     setMsgs(prevMsgs => [...prevMsgs, moduleWelcomeMessage]);
 
-    // 根据模块名称确定任务类型
     let taskType = '';
     let context = '';
     let aiPrompt = '';
@@ -468,10 +448,8 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     switch (moduleName) {
       case '任务一：史实认知':
         taskType = '史实认知';
-        // 【重要】在激活任务时，确保获取到完整原文
         const htmlContent = await ensureFullContentFetched();
         if (htmlContent && htmlContent.content) {
-          // 【核心修改】从 fullContentObject.content 中提取纯文本
           const plainText = htmlContent.content.map(section => {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = DOMPurify.sanitize(section.html_content || '');
@@ -498,12 +476,10 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         context = '';
         aiPrompt = '';
     }
-    // 更新AI上下文和聊天窗口状态
     setAiContext(context);
     setShowChatDrawer(true);
     setInitialAiPrompt(aiPrompt);
     setChatTaskType(taskType);
-    // 如果任务已完成，显示完成状态
     if (questProgress.moduleStates[taskType] === 'completed') {
       message.info(`✅ 【${moduleName}】已完成！你可以继续学习或进入下一个任务。`);
     } else {
@@ -513,7 +489,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     setAiContext(`${aiPrompt}\n\n学习材料:\n${context}`);
   };
 
-  // 完成任务函数
   const completeTask = (taskType) => {
     setQuestProgress(prev => {
       const newCompletedModules = [...prev.completedModules, taskType];
@@ -521,8 +496,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         ...prev.moduleStates,
         [taskType]: 'completed'
       };
-
-      // 确定下一个任务
       let nextTask = '';
       if (taskType === '史实认知') nextTask = '观点辨析';
       else if (taskType === '观点辨析') nextTask = '史料分析';
@@ -537,18 +510,15 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       };
     });
 
-    // 显示完成消息和徽章
     const badgeMessages = {
       '史实认知': '🎉 恭喜！你已完成"史实认知"任务，获得"历史记录员"徽章！',
       '观点辨析': '🎉 恭喜！你已完成"观点辨析"任务，获得"辩论大师"徽章！',
       '史料分析': '🎉 恭喜！你已完成"史料分析"任务，获得"证据收集者"徽章！',
       '历史批判思维训练': '🎉 恭喜！你已完成"历史批判思维训练"任务，获得"历史批判思想家"徽章！'
     };
-
     message.success(badgeMessages[taskType]);
   };
 
-  // 检查是否完成所有任务
   useEffect(() => {
     if (questProgress.completedModules.length === questProgress.totalTasks) {
       message.success('🎉 恭喜！你已完成所有探索任务！现在可以生成最终的历史调查报告了！');
@@ -603,7 +573,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                       <Spin tip="AI正在生成摘要与时间线..." />
                     </div>
                   ) : (
-                    // 【修改】将原文相关的 state 和函数传递下去
                     <WikiSummaryCard
                       data={coreData.wikiSummary}
                       setTopic={setTopic}
@@ -662,8 +631,8 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
        <AIChatDock
          topic={topic}
-         msgs={msgs}          // <--- 添加这行
-         setMsgs={setMsgs} 
+         msgs={msgs}
+         setMsgs={setMsgs}
          addNodeToMap={addNodeToMap}
          currentModule={currentModule}
          aiContext={aiContext}
@@ -681,8 +650,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 function QuestProgress({ questProgress }) {
   const { completedModules, currentTask, totalTasks, moduleStates } = questProgress;
   const progress = (completedModules.length / totalTasks) * 100;
-
-  // 计算激活的任务数量
   const activeTasks = Object.values(moduleStates).filter(state => state === 'active' || state === 'completed').length;
 
   return (
@@ -727,7 +694,6 @@ function ModuleHeader({ icon, title, hint, onActivate, isCompleted = false, task
       onActivate(title);
     }
 
-    // 根据任务状态显示不同的图标和颜色
     const getStatusIcon = () => {
       if (isCompleted) return '✅';
       if (taskState === 'active') return '🎯';
@@ -800,11 +766,9 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   const currentTargetRef = useRef(null);
   const summaryCache = useRef(new Map()).current;
 
-  // --- 【修改】搜索功能 State ---
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(-1);
-
   const [timelineItems, setTimelineItems] = useState([]);
 
   useEffect(() => {
@@ -853,7 +817,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     if (nextState && !fullHtmlContent) {
       await ensureFullContentFetched();
     }
-    // 展开或收起时，清空上一次的搜索状态
     setSearchTerm('');
     setSearchResults([]);
     setCurrentResultIndex(-1);
@@ -907,27 +870,18 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
       return sanitizedSections.map(section => {
         const placeholders = [];
         let placeholderId = 0;
-        
-        // 1. 先移除已存在的高亮标签，避免嵌套
         let cleanHtml = section.html_content.replace(/<span class="search-highlight[^"]*">(.*?)<\/span>/gi, '$1');
-        
-        // 2. 抽取所有HTML标签，用占位符替换
         const textOnly = cleanHtml.replace(/<[^>]*>/g, (match) => {
           placeholders.push(match);
           return `__HTML_PLACEHOLDER_${placeholderId++}__`;
         });
-        
-        // 3. 在纯文本上进行高亮替换，确保每个匹配项都是独立的
         const highlightedText = textOnly.replace(safeRegex, (match, offset) => {
           return `<span class="search-highlight" data-offset="${offset}">${match}</span>`;
         });
-        
-        // 4. 将HTML标签恢复回去
         let finalHtml = highlightedText;
         for (let i = 0; i < placeholders.length; i++) {
           finalHtml = finalHtml.replace(`__HTML_PLACEHOLDER_${i}__`, placeholders[i]);
         }
-        
         return { ...section, html_content: finalHtml };
       });
     } catch (e) {
@@ -936,15 +890,10 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     }
   }, [searchTerm, fullHtmlContent, isExpanded]);
 
-  // --- 【核心修改】使用 useLayoutEffect 确保滚动 ---
   useLayoutEffect(() => {
     if (searchResults.length > 0 && currentResultIndex >= 0) {
-      // 1. 移除上一个元素的 active class
       searchResults.forEach(el => el.classList.remove('search-highlight-active'));
-
-      // 2. 为当前元素添加 active class 并滚动
       const currentElement = searchResults[currentResultIndex];
-      
       if (currentElement) {
         currentElement.classList.add('search-highlight-active');
         currentElement.scrollIntoView({
@@ -954,13 +903,11 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
         });
       }
     }
-  }, [currentResultIndex]); // 【修复】只依赖 currentResultIndex，不依赖 searchResults
+  }, [currentResultIndex, searchResults]);
 
   const handleSearchExecution = (value) => {
     const term = value.trim();
     setSearchTerm(term);
-
-    // 清空旧状态
     setCurrentResultIndex(-1);
     setSearchResults([]);
 
@@ -968,13 +915,12 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
       return;
     }
 
-    // 使用 setTimeout 等待 useMemo 和 DOM 更新
     setTimeout(() => {
       if (contentRef.current) {
         const results = Array.from(contentRef.current.querySelectorAll('.search-highlight'));
-        setSearchResults(results); // 更新结果
+        setSearchResults(results);
         if (results.length > 0) {
-          setCurrentResultIndex(0); // 更新索引，这将触发 useLayoutEffect
+          setCurrentResultIndex(0);
           message.success(`找到了 ${results.length} 个匹配项。`);
         } else {
           message.info('在正文中未找到匹配项。');
@@ -983,7 +929,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     }, 100);
   };
 
-  // --- 【修改】导航函数只负责更新索引 ---
   const handleNavigateResult = (direction) => {
     if (searchResults.length === 0) return;
     setCurrentResultIndex(prevIndex => {
@@ -994,7 +939,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     });
   };
 
-  // --- 【新增】处理搜索框清除事件 ---
   const handleSearchChange = (e) => {
     if (e.target.value.trim() === '') {
       setSearchTerm('');
@@ -1008,17 +952,9 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
 
   return (
     <>
-      {/* --- 【新增】优化高亮样式 --- */}
       <style>{`
-        .search-highlight {
-          background-color: yellow;
-          transition: background-color 0.3s ease;
-        }
-        .search-highlight-active {
-          background-color: orange;
-          color: white;
-          border-radius: 3px;
-        }
+        .search-highlight { background-color: yellow; transition: background-color 0.3s ease; }
+        .search-highlight-active { background-color: orange; color: white; border-radius: 3px; }
       `}</style>
 
       <Card variant="bordered" style={{ borderStyle: "dashed", background: "#fafafa", textAlign: 'left' }}>
@@ -1045,7 +981,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
                 placeholder="在正文中搜索..."
                 allowClear
                 onSearch={handleSearchExecution}
-                onChange={handleSearchChange} // 【新增】绑定 onChange
+                onChange={handleSearchChange}
                 enterButton="搜索"
               />
               {searchResults.length > 0 && (
@@ -1124,6 +1060,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     </>
   );
 }
+
 function FactionRolesDisplay({ rolesData }) {
     if (!rolesData || rolesData.length === 0) {
         return null;
@@ -1163,6 +1100,9 @@ function ViewpointAnalysis({ data, topic }) {
     const [detailedViewpoints, setDetailedViewpoints] = useState([]);
     const [loading, setLoading] = useState(false);
     const [showFullDiscussion, setShowFullDiscussion] = useState(false);
+    const [discussionHtmlContent, setDiscussionHtmlContent] = useState(null);
+    const [isDiscussionHtmlLoading, setIsDiscussionHtmlLoading] = useState(false);
+    const contentRef = useRef(null);
 
     const { message } = AntdApp.useApp();
 
@@ -1172,14 +1112,11 @@ function ViewpointAnalysis({ data, topic }) {
             setDetailedViewpoints([]);
             return;
         }
-
         setLoading(true);
         setSelectedDebate(debateItem);
-
         try {
             const response = await getDiscussionDetails(topic, debateItem);
             setDetailedViewpoints(response.data.detailed_viewpoints || []);
-            message.success('讨论详情加载成功！');
         } catch (error) {
             console.error('获取讨论详情失败:', error);
             message.error('获取讨论详情失败，请稍后重试');
@@ -1189,141 +1126,179 @@ function ViewpointAnalysis({ data, topic }) {
         }
     };
 
-    const handleShowFullDiscussion = () => {
-        setShowFullDiscussion(!showFullDiscussion);
+    const handleShowFullDiscussion = async () => {
+        const nextState = !showFullDiscussion;
+        setShowFullDiscussion(nextState);
+        if (nextState && !discussionHtmlContent) {
+            setIsDiscussionHtmlLoading(true);
+            try {
+                const res = await getWikiDiscussionHtmlContent(topic);
+                if (res.data && (res.data.content || res.data.toc)) {
+                    setDiscussionHtmlContent(res.data);
+                } else {
+                    throw new Error('返回的讨论页数据格式不正确或内容为空');
+                }
+            } catch (error) {
+                console.error("加载维基百科讨论页内容失败:", error);
+                message.error('加载讨论页原文失败');
+                setDiscussionHtmlContent({ content: [], toc: [], title: "加载失败", url: '' });
+            } finally {
+                setIsDiscussionHtmlLoading(false);
+            }
+        }
+    };
+    
+    // --- ▼▼▼ 核心修改 1：替换为与模块一相同的 handleScrollTo 函数 ▼▼▼ ---
+    const handleScrollTo = (key) => {
+        const element = document.getElementById(key); // `key` 直接就是章节的 id
+        if (element && contentRef.current) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     };
 
+    // --- ▼▼▼ 核心修改 2：替换为与模块一相同的 buildTree 函数 ▼▼▼ ---
+    const buildTree = (list) => {
+        if (!list || list.length === 0) return [];
+        const mapToMenuItems = (nodes) => nodes.map(node => {
+          const hasChildren = node.children && node.children.length > 0;
+          // 注意：我们将 onClick 事件直接绑定在 span 上
+          const label = (
+            <span onClick={(e) => { e.stopPropagation(); handleScrollTo(node.id); }}>
+              {node.title}
+            </span>
+          );
+          const menuItem = { 
+            key: node.id, // 使用章节的 id 作为 key
+            label: label, 
+          };
+          if (hasChildren) {
+            menuItem.children = mapToMenuItems(node.children);
+          }
+          return menuItem;
+        });
+
+        const tree = [];
+        const path = [];
+        list.forEach(item => {
+            const node = { ...item, children: [] };
+            while (path.length > 0 && path[path.length - 1].level >= node.level) { path.pop(); }
+            if (path.length > 0) { path[path.length - 1].children.push(node); }
+            else { tree.push(node); }
+            path.push(node);
+        });
+        return mapToMenuItems(tree);
+    };
+
+    // --- ▼▼▼ 核心修改 3：让目录数据源于 content 数组，与模块一保持一致 ▼▼▼ ---
+    const menuItems = buildTree(discussionHtmlContent?.content);
+
     return (
-      <Card size="small" variant="bordered"  style={{ borderStyle: "dashed", textAlign:'left' }}>
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <FactionRolesDisplay rolesData={data.faction_roles} />
-
-          <List
-            size="small"
-            header={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text strong>维基讨论页摘录（要点）</Text>
-                <Button
-                  type="link"
-                  size="small"
-                  loading={loading}
-                  onClick={handleShowFullDiscussion}
-                  style={{ padding: 0 }}
-                >
-                  {showFullDiscussion ? '收起完整讨论页' : '阅读完整讨论页'}
-                </Button>
-              </div>
-            }
-            dataSource={data.debates || []}
-            renderItem={(debateItem, index) => (
-              <List.Item
-                style={{
-                  cursor: 'pointer',
-                  backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
-                  borderRadius: '4px',
-                  padding: '8px',
-                  margin: '2px 0',
-                  border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
-                }}
-                onClick={() => handleDebateClick(debateItem)}
-              >
-                <Space align="start" style={{ width: '100%' }}>
-                  <Tag color={selectedDebate === debateItem ? "processing" : "default"}>
-                    {index + 1}
-                  </Tag>
-                  <Text style={{ flex: 1 }}>{debateItem}</Text>
-                  {selectedDebate === debateItem && loading && <Spin size="small" />}
-                </Space>
-              </List.Item>
-            )}
-          />
-          {showFullDiscussion && data.full_discussion && (
-            <>
-              <Divider dashed style={{ margin: "8px 0" }} />
-              <div style={{
-                backgroundColor: '#f8f9fa',
-                padding: '12px',
-                borderRadius: '6px',
-                border: '1px solid #e9ecef',
-                maxHeight: '400px',
-                overflowY: 'auto'
-              }}>
-                <Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
-                  维基百科讨论页完整内容
-                </Title>
-                <div style={{
-                  whiteSpace: 'pre-wrap',
-                  fontSize: '13px',
-                  lineHeight: '1.6',
-                  color: '#495057'
-                }}>
-                  {data.full_discussion}
-                </div>
-                <div style={{ marginTop: 8, textAlign: 'right' }}>
-                  <a href={`https://zh.wikipedia.org/wiki/讨论:${topic}`} target="_blank" rel="noopener noreferrer">
-                    在维基百科中查看完整讨论页
-                  </a>
-                </div>
-              </div>
-            </>
-          )}
-
-          {selectedDebate && detailedViewpoints.length > 0 && (
-            <>
-              <Divider dashed style={{ margin: "8px 0" }} />
-              <div style={{
-                backgroundColor: '#f0f9ff',
-                padding: '12px',
-                borderRadius: '6px',
-                border: '1px solid #bae7ff',
-                textAlign:'left'
-              }}>
-                <Title level={5} style={{ marginTop: 0, marginBottom: 8, color: '#1890ff', textAlign:'left'}}>
-                  关于"{selectedDebate}"的详细观点分析（基于维基讨论页）
-                </Title>
+        <Card size="small" variant="bordered" style={{ borderStyle: "dashed", textAlign: 'left' }}>
+            <Space direction="vertical" style={{ width: "100%" }}>
+                <FactionRolesDisplay rolesData={data.faction_roles} />
                 <List
-                  size="small"
-                  dataSource={detailedViewpoints}
-                  renderItem={(viewpoint) => (
-                    <List.Item style={{ borderBottom: '1px solid #e6f7ff', padding: '8px 0' }}>
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Space align="start">
-                          <Tag color="blue">{viewpoint.side}</Tag>
-                          <Text strong>{viewpoint.text}</Text>
-                        </Space>
-                        {viewpoint.evidence && (
-                          <Text type="secondary" style={{ marginLeft: 24, fontSize: '12px' }}>
-                            支撑证据：{viewpoint.evidence}
-                          </Text>
-                        )}
-                      </Space>
-                    </List.Item>
-                  )}
+                    size="small"
+                    header={
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text strong>维基讨论页摘录（要点）</Text>
+                            <Button
+                                type="link"
+                                size="small"
+                                loading={isDiscussionHtmlLoading}
+                                onClick={handleShowFullDiscussion}
+                                style={{ padding: 0 }}
+                            >
+                                {showFullDiscussion ? '收起完整讨论页' : '阅读完整讨论页'}
+                            </Button>
+                        </div>
+                    }
+                    dataSource={data.debates || []}
+                    renderItem={(debateItem, index) => (
+                        <List.Item
+                            style={{
+                                cursor: 'pointer',
+                                backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
+                                borderRadius: '4px',
+                                padding: '8px',
+                                margin: '2px 0',
+                                border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
+                            }}
+                            onClick={() => handleDebateClick(debateItem)}
+                        >
+                            <Space align="start" style={{ width: '100%' }}>
+                                <Tag color={selectedDebate === debateItem ? "processing" : "default"}>{index + 1}</Tag>
+                                <Text style={{ flex: 1 }}>{debateItem}</Text>
+                                {selectedDebate === debateItem && loading && <Spin size="small" />}
+                            </Space>
+                        </List.Item>
+                    )}
                 />
-              </div>
-            </>
-          )}
+                
+                {showFullDiscussion && (
+                     <Card
+                        variant="bordered"
+                        style={{ marginTop: '16px', borderStyle: "dashed", background: "#fafafa", height: '85vh', display: 'flex', flexDirection: 'column', textAlign: 'left' }}
+                        styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
+                    >
+                        {isDiscussionHtmlLoading ? (
+                             <div style={{textAlign: 'center', padding: 48}}><Spin tip="讨论页原文加载中..."/></div>
+                        ) : discussionHtmlContent ? (
+                            <>
+                                <div style={{ flexShrink: 0, marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Title level={5} style={{ margin: 0 }}>
+                                      <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(discussionHtmlContent.title || '') }} />
+                                    </Title>
+                                    {discussionHtmlContent.url && <Button icon={<LinkOutlined />} href={discussionHtmlContent.url} target="_blank" rel="noopener noreferrer">在维基百科中查看</Button>}
+                                </div>
+                                <Row gutter={24} style={{ flex: 1, minHeight: 0 }}>
+                                    <Col span={6} style={{ height: '100%' }}>
+                                        <div style={{ height: '100%', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column' }}>
+                                            <Title level={5} style={{ marginTop: 0, flexShrink: 0 }}>目录</Title>
+                                            <div style={{ overflowY: 'auto', flex: 1 }}>
+                                                {/* --- ▼▼▼ 核心修改 4：移除 Menu 上的 onClick ▼▼▼ --- */}
+                                                {(menuItems && menuItems.length > 0) ? (
+                                                    <Menu mode="inline" items={menuItems} style={{ borderRight: 0, background: 'transparent' }} />
+                                                ) : <Empty description='暂无目录' image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+                                            </div>
+                                        </div>
+                                    </Col>
+                                    <Col span={18} style={{ height: '100%' }}>
+                                        <div ref={contentRef} style={{ height: '100%', overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: '8px', padding: '16px', position: 'relative' }}>
+                                            {(discussionHtmlContent.content && discussionHtmlContent.content.length > 0) ? (
+                                                discussionHtmlContent.content.map((section) => (
+                                                    <div key={section.id} id={section.id}>
+                                                        <Title level={Math.min(section.level + 2, 5)} style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: '8px', marginTop: 24 }}>
+                                                            {section.title}
+                                                        </Title>
+                                                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(section.html_content || '') }} />
+                                                    </div>
+                                                ))
+                                            ) : <Empty description="暂无正文内容" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+                                        </div>
+                                    </Col>
+                                </Row>
+                             </>
+                        ) : (
+                             <Empty description="未能加载讨论页内容" />
+                        )}
+                    </Card>
+                )}
 
-          {selectedDebate && detailedViewpoints.length === 0 && !loading && (
-            <>
-              <Divider dashed style={{ margin: "8px 0" }} />
-              <div style={{
-                backgroundColor: '#fff7e6',
-                padding: '12px',
-                borderRadius: '6px',
-                border: '1px solid #ffd591',
-                textAlign: 'center'
-              }}>
-                <Text type="secondary">
-                  在维基百科讨论页中未找到与"{selectedDebate}"直接相关的详细观点分析
-                </Text>
-              </div>
-            </>
-          )}
-        </Space>
-      </Card>
+                {selectedDebate && detailedViewpoints.length === 0 && !loading && (
+                    <>
+                        <Divider dashed style={{ margin: "8px 0" }} />
+                        <div style={{ backgroundColor: '#fff7e6', padding: '12px', borderRadius: '6px', border: '1px solid #ffd591', textAlign: 'center' }}>
+                            <Text type="secondary">
+                                在维基百科讨论页中未找到与"{selectedDebate}"直接相关的详细观点分析
+                            </Text>
+                        </div>
+                    </>
+                )}
+            </Space>
+        </Card>
     );
 }
+
 
 function SourcesComparisonCard({ data }) {
   const [showReferences, setShowReferences] = useState(false);
@@ -1418,12 +1393,8 @@ function SourcesComparisonCard({ data }) {
 }
 
 function EditableCard({ card, onChange, onDelete }) {
-
-  // 使用语音识别 Hook
   const { isListening, startListening } = useSpeechRecognition(
-    // 识别完成后的回调函数
     (transcript) => {
-      // 将识别出的文本追加到现有内容后面
       const newContent = card.content ? `${card.content}\n${transcript}` : transcript;
       onChange(card.id, 'content', newContent);
       message.success('语音输入已完成');
@@ -1452,7 +1423,6 @@ function EditableCard({ card, onChange, onDelete }) {
             onClick={() => onDelete(card.id)}
           />
         </div>
-        {/* 将 TextArea 和 语音按钮 放入一个相对定位的容器中 */}
         <div style={{ position: 'relative', width: '100%' }}>
           <TextArea
             variant="filled"
@@ -1461,7 +1431,6 @@ function EditableCard({ card, onChange, onDelete }) {
             onChange={(e) => onChange(card.id, 'content', e.target.value)}
             placeholder={card.placeholder || '请输入内容...'}
           />
-          {/* 语音按钮，绝对定位于右下角 */}
           <Button
             type="text"
             icon={<AudioOutlined />}
@@ -1484,11 +1453,12 @@ function EditableCard({ card, onChange, onDelete }) {
 
 function HistoricalCriticalThinkingSection({ questProgress, onCompleteAllTasks }) {
   const initialCards = [
-    { id: 1, title: '我的历史视角', content: '', placeholder: '基于前面的学习，我对这个历史事件形成了什么独特的观点和判断？' },
-    { id: 2, title: '关键证据分析', content: '', placeholder: '哪些证据最能支持我的观点？这些证据的可靠性如何？' },
-    { id: 3, title: '反对观点思考', content: '', placeholder: '如果有人反对我的观点，他们会提出什么论据？我如何回应？' },
-    { id: 4, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天有什么启示？' },
-    { id: 5, title: '批判性结论', content: '', placeholder: '基于批判性思维，我的最终历史判断是什么？为什么？' },
+    { id: 1, title: '我的历史视角', content: '', placeholder: '基于前面的学习，请简述您对该历史事件形成的整体看法和判断。' },
+    { id: 2, title: '事件的直接原因', content: '', placeholder: '分析并列出导致该事件发生的直接因素或导火索是什么？' },
+    { id: 3, title: '事件的深层原因', content: '', placeholder: '探讨事件背后更深层次的政治、经济、社会或文化原因。' },
+    { id: 4, title: '触发事件', content: '', placeholder: '是哪个具体的事件或行动最终引爆了整个事态？' },
+    { id: 5, title: '历史影响', content: '', placeholder: '该事件对当时及后来的历史发展产生了哪些短期和长期的影响？' },
+    { id: 6, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天有什么启示？' },
   ];
 
   const [cards, setCards] = useState(initialCards);
@@ -1545,7 +1515,6 @@ ${content.trim()}
 
   const handleSave = () => {
     message.success('内容已保存！');
-    // 检查是否完成因果链分析任务
     if (cards.some(card => card.content.trim())) {
       onCompleteAllTasks && onCompleteAllTasks();
     }
@@ -1650,11 +1619,8 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
     const { message } = AntdApp.useApp();
     const [selectedMenuText, setSelectedMenuText] = useState('');
 
-    // 使用语音识别 Hook
     const { isListening, startListening } = useSpeechRecognition(
-      // 识别完成后的回调函数
       (transcript) => {
-        // 将识别结果设置到输入框
         setChatValue(prev => prev + transcript);
       }
     );
@@ -1863,7 +1829,6 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                      <Button type="primary" onClick={send} loading={loading}>发送</Button>
                  </Space.Compact>
 
-                 {/* 完成任务按钮 */}
                  {currentModule && !questProgress.completedModules.includes(currentModule.replace('任务一：', '').replace('任务二：', '').replace('任务三：', '').replace('任务四：', '')) && (
                      <div style={{ marginTop: 8, textAlign: 'center' }}>
                          <Button
@@ -1918,7 +1883,7 @@ function NotesWorkspace({
           任务四：历史批判思维训练
         </Space>
       ),
-      children: <HistoricalCriticalThinkingSection 
+      children: <HistoricalCriticalThinkingSection
         questProgress={questProgress}
         onCompleteAllTasks={onCompleteAllTasks}
       />,
