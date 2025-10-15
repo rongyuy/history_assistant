@@ -1,8 +1,26 @@
+# backend/app/api/wiki.py
+
 from fastapi import APIRouter
-from app.schemas.main_schemas import WikiTopicResponse, ViewpointAnalysisResponse, SourceComparisonResponse
+from app.schemas.main_schemas import (
+    WikiTopicResponse, 
+    ViewpointAnalysisResponse, 
+    SourceComparisonResponse,
+    ComparePairRequest, 
+    SourceMaterial,
+    DiscussionDetailRequest,
+    RefreshDebatesRequest,
+    DebatesResponse
+)
+from pydantic import BaseModel # <-- 3. 导入 BaseModel
+from typing import List         # <-- 4. 导入 List
 from app.services import wikipedia_service, llm_service
 
 router = APIRouter()
+
+# 5. 定义一个新的响应模型，因为这个接口只返回 "sources" 部分
+class SourcesOnlyResponse(BaseModel):
+    sources: List[SourceMaterial]
+
 
 @router.get("/topic/{topic_name}", response_model=WikiTopicResponse)
 def get_topic_info(topic_name: str):
@@ -35,12 +53,27 @@ def get_wiki_discussion_html_content_endpoint(topic_name: str):
     
     return wikipedia_service.get_wiki_discussion_structured_content(topic_name)
 
-@router.get("/discussion-details/{topic_name}")
-def get_discussion_details(topic_name: str, debate_item: str):
+@router.post("/discussion-details")
+def get_discussion_details_endpoint(request: DiscussionDetailRequest):
     """
     获取特定讨论要点的详细内容和多方观点分析
     """
-    data = wikipedia_service.get_discussion_details(topic_name, debate_item)
+    data = wikipedia_service.get_discussion_details(
+        request.topic, 
+        request.debate_item,
+        request.current_factions  # <-- 将前端传来的阵营列表传递下去
+    )
+    return data
+
+@router.post("/viewpoints/refresh-debates", response_model=DebatesResponse) # <-- 改为 POST，简化路径
+def refresh_debates_endpoint(request: RefreshDebatesRequest): # <-- 接收请求体
+    """
+    一个专门的端点，只用于刷新维基讨论页的争议要点。
+    """
+    data = wikipedia_service.refresh_debate_points(
+        request.topic,
+        request.existing_debates # <-- 传入已存在的要点
+    )
     return data
 
 @router.get("/sources/{topic_name}", response_model=SourceComparisonResponse)
@@ -50,6 +83,21 @@ def get_source_comparison(topic_name: str):
     """
     final_data = wikipedia_service.get_source_comparison(topic_name)
     return final_data
+
+# ▼▼▼ 在文件末尾添加这个全新的路由 ▼▼▼
+@router.post("/sources/compare_pair", response_model=SourcesOnlyResponse)
+def regenerate_comparison(request: ComparePairRequest):
+    """
+    接收一个包含2个史料的列表，并让AI为它们生成新的对读内容。
+    """
+    # 将 Pydantic 模型列表转换为 service 函数所需的字典列表
+    source_dicts = [ref.dict() for ref in request.references]
+    
+    # 调用新的 service 函数，该函数只与LLM交互，不爬取网页
+    data = wikipedia_service.regenerate_source_comparison_from_list(request.topic, source_dicts)
+    return data
+# ▲▲▲ 新路由结束 ▲▲▲
+
 
 @router.get("/wiki/preview/{topic_name}", response_model=dict)
 def get_wiki_preview(topic_name: str):

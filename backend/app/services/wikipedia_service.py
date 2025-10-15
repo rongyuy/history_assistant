@@ -10,9 +10,11 @@ from app.services.scraping_service import fetch_url_content_async
 import requests
 from opencc import OpenCC
 from bs4 import BeautifulSoup
+import random 
 import re 
 import os
 import json
+from typing import List, Dict # 确保导入 List 和 Dict
 
 wiki = wikipediaapi.Wikipedia(
     user_agent='HistoryAssistant/1.0 (rongyuy@example.com)',
@@ -35,6 +37,69 @@ def convert_to_simplified(text):
     except Exception as e:
         print(f"繁简转换失败: {e}")
         return text
+    
+def is_garbled(text: str) -> bool:
+    """
+    一个健壮的乱码检测函数。
+    如果文本中不包含任何可识别的字符（中文、英文、数字），则判定为乱码。
+    """
+    if not text or text.isspace():
+        return False
+    
+    # U+FFFD () 是 Unicode 的替换字符，是乱码的明确标志
+    if '\ufffd' in text:
+        return True
+        
+    # 如果字符串中连一个中文字符、英文字母或数字都找不到，
+    # 那么它极大概率是无法阅读的乱码。
+    if not re.search(r'[\u4e00-\u9fa5a-zA-Z0-9]', text):
+        return True
+        
+    return False
+
+# ▼▼▼ 新增一个内部辅助函数，专门用于获取与前端一致的纯文本 ▼▼▼
+def _get_simplified_clean_text(topic_name: str) -> str:
+    """
+    获取维基百科页面的HTML，清理后提取纯文本，并转换为简体中文。
+    这是为了确保LLM分析的文本源和前端展示的源头一致。
+    """
+    session = requests.Session()
+    url = "https://zh.wikipedia.org/w/api.php"
+    params = {"action": "parse", "page": topic_name, "prop": "text", "format": "json", "formatversion": "2"}
+    headers = {'User-Agent': 'HistoryAssistant/1.0 (your-email@example.com)'}
+    try:
+        response = session.get(url=url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        if "error" in data:
+            return ""
+        
+        full_html = data.get("parse", {}).get("text")
+        if not full_html:
+            return ""
+
+        soup = BeautifulSoup(full_html, 'html.parser')
+        
+        # 使用与 get_wiki_structured_content 相同的清理规则
+        unwanted_selectors = ['.mw-editsection', '.noprint', '.mw-jump-link','.infobox', '.metadata', '.ambox', '.hatnote','.navbox', '.thumb', '.reflist', '#toc', '.sidebar', '.reference', '.gallery', 'table.mbox-small-left', 'style']
+        for selector in unwanted_selectors:
+            for tag in soup.select(selector):
+                tag.decompose()
+        for ref in soup.find_all("sup", class_="reference"):
+            ref.decompose()
+
+        content_div = soup.find('div', class_='mw-parser-output')
+        if not content_div:
+            return ""
+        
+        # 提取纯文本并进行繁简转换
+        plain_text = content_div.get_text(separator=' ', strip=True)
+        return convert_to_simplified(plain_text)
+
+    except Exception as e:
+        print(f"获取和清理维基百科纯文本时出错: {e}")
+        return ""
+# ▲▲▲ 新增函数结束 ▲▲▲
 
 # 新增函数：通过调用MediaWiki API获取外部链接
 def get_external_links_from_wiki_api(topic_name: str) -> list:
@@ -121,6 +186,7 @@ def get_wiki_preview_summary(topic_name: str) -> dict:
         print(f"调用维基百科预览API失败: {e}")
         return {"summary": "网络请求失败，无法获取预览。"}
 
+# --- 这里是您原来被我不慎遗漏的函数，现在已恢复 ---
 # 【新功能】直接从 MediaWiki API 获取原始 wikitext
 def get_raw_wikitext(topic_name: str) -> str:
     """
@@ -157,7 +223,10 @@ def get_raw_wikitext(topic_name: str) -> str:
         print(f"解析MediaWiki API wikitext响应时出错: {e}")
     
     return "" # 如果失败则返回空字符串
+# --- 函数恢复结束 ---
 
+
+# ▼▼▼ 这是被修改的核心函数 ▼▼▼
 def get_topic_data(topic_name: str) -> dict:
     page = wiki.page(topic_name)
 
@@ -167,22 +236,43 @@ def get_topic_data(topic_name: str) -> dict:
             "timeline": []
         }
 
-    # 1. 从LLM获取摘要和时间线
-    structured_data = llm_service.generate_summary_and_timeline(topic_name, page.text)
+    # 1. 【核心修改】使用新的辅助函数获取与前端一致的、清理过的简体中文纯文本
+    print(f"Wikipedia Service: Fetching and cleaning content for '{topic_name}' to be used by LLM...")
+    clean_simplified_text = _get_simplified_clean_text(topic_name)
+    
+    if not clean_simplified_text:
+        # 如果获取失败，回退到老方法，但这可能导致source_text不匹配
+        print(f"Warning: Failed to get clean text for '{topic_name}'. Falling back to page.text.")
+        clean_simplified_text = convert_to_simplified(page.text)
 
-    # 2. 直接从获取的数据中提取，并提供默认值以防万一
+    # 2. 将这份干净的、与前端同源的文本传递给LLM进行分析
+    structured_data = llm_service.generate_summary_and_timeline(topic_name, clean_simplified_text)
+
+    # 3. 直接从LLM的返回数据中提取摘要和时间线
     summary = structured_data.get("summary", "AI未能生成摘要。")
     timeline = structured_data.get("timeline", [])
     
-    # 3. 转换繁体字为简体字
+    # 4. 对LLM返回的所有文本内容进行最终的繁简转换，作为双重保险
     summary = convert_to_simplified(summary)
-    timeline = [{"year": item.get("year", ""), "event": convert_to_simplified(item.get("event", ""))} for item in timeline]
     
-    # 4. 组合最终结果
+    converted_timeline = []
+    for item in timeline:
+        converted_item = {
+            "year": item.get("year", ""),
+            "event": convert_to_simplified(item.get("event", "")),
+            "source_text": convert_to_simplified(item.get("source_text", ""))
+        }
+        converted_timeline.append(converted_item)
+
+    # 5. 组合并返回最终结果
     return {
         "summary": summary,
-        "timeline": timeline
+        "timeline": converted_timeline
     }
+# ▲▲▲ 修改结束 ▲▲▲
+
+
+# --- 以下是您其余的、未做任何修改的函数 ---
 
 def get_topic_discussion_data(topic_name: str) -> dict:
     """
@@ -255,7 +345,7 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     }
 
 # 【核心修改】将 get_references_with_content 完全改造为异步并行模式
-async def get_references_with_content_async(topic_name: str, limit: int = 20) -> list:
+async def get_references_with_content_async(topic_name: str, limit: int = 40) -> list:
     """
     异步、并行地获取维基百科的参考文献及其内容。
     """
@@ -277,30 +367,67 @@ async def get_references_with_content_async(topic_name: str, limit: int = 20) ->
 # 【核心修改】改造 get_source_comparison 来调用新的异步函数
 def get_source_comparison(topic_name: str) -> dict:
     """
-    获取关于特定主题的多源史料对比分析，并包含原始参考文献。
-    这个函数负责整合数据。
+    获取多源史料对比，并在此处对所有抓取结果的标题和正文进行最终的乱码过滤。
     """
-    # 1. 【新】使用 asyncio.run() 来执行我们的异步抓取函数
-    #    在这里将文献数量限制从10改为了20
-    all_scraped_contents = asyncio.run(get_references_with_content_async(topic_name, limit=20))
+    all_scraped_contents = asyncio.run(get_references_with_content_async(topic_name, limit=40))
     
-    # 步骤 A: 筛选出抓取成功的文献 (这部分逻辑不变)
-    successful_contents = [
-        item for item in all_scraped_contents if item and item.get("success") and item.get("content")
-    ]
+    # 【最终核心修复】在处理所有数据之前，使用 is_garbled 函数对标题和正文同时进行过滤
+    # 只有标题和正文都不是乱码的文献才会被保留
+    filtered_contents = []
+    for item in all_scraped_contents:
+        if not item:
+            continue
 
-    # 2. 调用LLM服务 (这部分逻辑不变)
+        title = item.get("title", "")
+        content = item.get("content", "")
+
+        # 只要标题是乱码，就立即丢弃
+        if is_garbled(title):
+            print(f"Filtering out due to garbled title: {title[:70]}")
+            continue
+        
+        # 如果有正文，且正文是乱码，也丢弃
+        if content and is_garbled(content):
+            print(f"Filtering out due to garbled content (Title: {title})")
+            continue
+        
+        # 通过所有检查的，才是合格的文献
+        filtered_contents.append(item)
+    
+    # 后续的所有操作都基于这个干净的、经过双重过滤的列表
+    successful_contents = [
+        item for item in filtered_contents 
+        if item.get("success") and item.get("content")
+    ]
+    
+    # 对过滤后的成功内容进行随机排序，以增加AI对比的多样性
+    random.shuffle(successful_contents)
+
     comparison_data = llm_service.generate_source_comparison(topic_name, successful_contents)
 
-    # 步骤 B: 为所有抓取成功的内容生成中文摘要 (这部分逻辑不变)
+    # 仅为成功且内容不为空的文献生成摘要
     for item in successful_contents:
         item['content'] = llm_service.summarize_reference_content(item['content'])
 
-    # 3. 返回最终结果 (这部分逻辑不变)
+    # 在最终返回的 "references" 字段中，我们只使用过滤后的、成功的文献列表
     return {
         "sources": comparison_data.get("sources", []),
         "references": successful_contents
     }
+
+# ▼▼▼ 在文件末尾添加这个新函数 ▼▼▼
+def regenerate_source_comparison_from_list(topic: str, source_list: List[Dict[str, str]]) -> dict:
+    """
+    接收一个已有的参考文献列表（通常是2个），并直接调用LLM服务为它们生成对读内容。
+    这个函数不执行任何网络爬取或过滤。
+    """
+    print(f"Wikipedia Service: Regenerating comparison for topic '{topic}' with {len(source_list)} provided sources.")
+    # 直接调用LLM服务，因为列表已经是前端筛选好的
+    comparison_data = llm_service.generate_source_comparison(topic, source_list)
+    # 返回的数据结构与LLM服务返回的完全一致
+    return comparison_data
+# ▲▲▲ 新函数结束 ▲▲▲
+
 
 def get_wiki_structured_content(topic_name: str) -> dict:
     """
@@ -479,31 +606,59 @@ def get_wiki_discussion_structured_content(topic_name: str) -> dict:
 
 
     
-def get_discussion_details(topic_name: str, debate_item: str) -> dict:
+def get_discussion_details(topic_name: str, debate_item: str, faction_names: List[str]) -> dict:
     """
     获取特定讨论要点的详细内容和多方观点分析
     """
-    # 获取主页面和讨论页
-    page = wiki.page(topic_name)
-    talk_page = wiki.page(f"讨论:{topic_name}")
+    # --- ▼▼▼ 核心修改区域：数据准备方式完全重构 ▼▼▼ ---
     
-    if not page.exists():
+    # 1. 不再使用 .text，而是直接获取结构化的讨论页内容
+    structured_talk_data = get_wiki_discussion_structured_content(topic_name)
+    
+    # 2. 检查获取是否成功，以及内容是否存在
+    if not structured_talk_data or not structured_talk_data.get("content"):
         return {
             "detailed_viewpoints": [],
-            "discussion_content": f"抱歉，在维基百科中找不到关于'{topic_name}'的页面。"
+            "discussion_content": f"未能找到或解析关于'{topic_name}'的讨论页。",
+            "source_sections": [],
+            "involved_factions": [] # 新增默认返回值
         }
+
+    # 3. 将结构化内容格式化为AI易于理解的、带清晰标题的文本
+    formatted_talk_content = ""
+    for section in structured_talk_data["content"]:
+        title = section.get("title", "").strip()
+        soup = BeautifulSoup(section.get("html_content", ""), 'html.parser')
+        content_text = soup.get_text(" ", strip=True)
+        
+        if title and content_text:
+            formatted_talk_content += f"== {title} ==\n{content_text}\n\n"
+
+    # 4. 如果格式化后内容为空，也提前返回
+    if not formatted_talk_content.strip():
+         return {
+            "detailed_viewpoints": [],
+            "discussion_content": "讨论页内容为空，无法进行分析。",
+            "source_sections": [],
+            "involved_factions": [] # 新增默认返回值
+        }
+
+    # 5. 获取主页面内容（作为辅助参考，但AI主要依赖讨论页）
+    page = wiki.page(topic_name)
+    main_page_text = page.text if page.exists() else ""
+
+    # --- ▲▲▲ 核心修改区域结束 ▲▲▲ ---
+
+    # 【修改调用】将获取到的阵营名称列表传递给AI
+    analysis_data = llm_service.analyze_detailed_discussion(
+        topic_name, 
+        debate_item, 
+        main_page_text, 
+        formatted_talk_content,
+        tuple(faction_names)
+    )
     
-    # 准备讨论页内容
-    talk_content = ""
-    if talk_page.exists():
-        talk_content = talk_page.text
-    else:
-        talk_content = f"关于'{topic_name}'的讨论页不存在或为空。"
-    
-    # 使用LLM分析特定讨论要点的详细内容
-    analysis_data = llm_service.analyze_detailed_discussion(topic_name, debate_item, page.text, talk_content)
-    
-    # 转换繁体字为简体字
+    # (下面的数据处理逻辑保持不变)
     detailed_viewpoints = []
     for viewpoint in analysis_data.get("detailed_viewpoints", []):
         converted_viewpoint = {
@@ -513,7 +668,45 @@ def get_discussion_details(topic_name: str, debate_item: str) -> dict:
         }
         detailed_viewpoints.append(converted_viewpoint)
     
+    source_sections = [convert_to_simplified(section) for section in analysis_data.get("source_sections", [])]
+    
+    # 【新增】获取并转换关联的阵营
+    involved_factions = [convert_to_simplified(faction) for faction in analysis_data.get("involved_factions", [])]
+    
+    print(f"AI 参考的讨论页章节标题: {source_sections}")
+    print(f"AI 识别出的关联阵营: {involved_factions}")
+    
+    # 【修改返回】在最终返回的字典中加入关联阵营
     return {
         "detailed_viewpoints": detailed_viewpoints,
-        "discussion_content": convert_to_simplified(analysis_data.get("discussion_content", ""))
+        "discussion_content": convert_to_simplified(analysis_data.get("discussion_content", "")),
+        "source_sections": source_sections,
+        "involved_factions": involved_factions # <-- 新增返回字段
     }
+
+def refresh_debate_points(topic_name: str, existing_debates: List[str]) -> dict: # <-- 增加参数
+    """
+    一个专门的函数，只用于重新生成维基讨论页的争议要点。
+    """
+    print(f"Wikipedia Service: Refreshing debate points for '{topic_name}', excluding {len(existing_debates)} items.")
+    page = wiki.page(topic_name)
+    if not page.exists():
+        return {"debates": [f"找不到关于'{topic_name}'的页面。"]}
+
+    talk_page = wiki.page(f"讨论:{topic_name}")
+    talk_content = talk_page.text if talk_page.exists() else f"关于'{topic_name}'的讨论页不存在。"
+
+    # 核心：调用LLM服务时，传入需要排除的列表
+    analysis_data = llm_service.analyze_viewpoints_and_debates(
+        topic_name, 
+        page.text, 
+        talk_content,
+        exclude_debates=tuple(existing_debates) # <-- 传入新参数
+    )
+
+    # ... (后面的提取和转换逻辑不变) ...
+    debates = analysis_data.get("debates", [])
+    converted_debates = [convert_to_simplified(debate) for debate in debates]
+
+    print(f"Successfully refreshed {len(converted_debates)} new debate points.")
+    return {"debates": converted_debates}

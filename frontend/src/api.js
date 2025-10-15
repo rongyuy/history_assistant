@@ -33,14 +33,28 @@ export const getSourcesComparison = (topic) => {
   return apiClient.get(`/sources/${topic}`);
 };
 
+export const postComparePair = (topic, references) => {
+  // 假设您的API客户端实例名为 apiClient，且基础URL已配置好
+  return apiClient.post('/sources/compare_pair', { topic, references });
+};
+
 // 【新增API函数】
 export const getWikiDiscussionHtmlContent = (topic) => apiClient.get(`/wiki/discussion-html-content/${topic}`);
 
-// 封装获取讨论页详细内容的API
-export const getDiscussionDetails = (topic, debateItem) => {
-    return apiClient.get(`/discussion-details/${topic}`, {
-        params: { debate_item: debateItem }
-    });
+
+export const getDiscussionDetails = (topic, debateItem, currentFactions) => {
+  return apiClient.post('/discussion-details', {
+    topic: topic,
+    debate_item: debateItem,
+    current_factions: currentFactions
+  });
+};
+
+export const refreshDebatePoints = (topic, existingDebates) => {
+  return apiClient.post('/viewpoints/refresh-debates', {
+    topic: topic,
+    existing_debates: existingDebates
+  });
 };
 
 // 封装获取结构化大纲的API
@@ -82,3 +96,5 @@ export const getWikiHtmlContent = (topic) => {
 export const getWikiPreview = (topic) => {
   return apiClient.get(`/wiki/preview/${topic}`); 
 };
+
+

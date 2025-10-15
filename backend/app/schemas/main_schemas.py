@@ -1,3 +1,5 @@
+# backend/app/schemas/main_schemas.py
+
 # 存放所有Pydantic数据模型
 
 from pydantic import BaseModel
@@ -18,6 +20,7 @@ class AIChatRequest(BaseModel):
 class TimelineEvent(BaseModel):
     year: str
     event: str
+    source_text: str
 
 class WikiReference(BaseModel):
     id: int
@@ -58,7 +61,7 @@ class ScrapeResponse(BaseModel):
     content: Optional[str] = None
     message: Optional[str] = None
 
-# --- 史料对比相关 (新增) ---
+# --- 史料对比相关 (修改) ---
 class SourceMaterial(BaseModel):
     title: str
     url: str
@@ -68,6 +71,18 @@ class SourceMaterial(BaseModel):
 class SourceComparisonResponse(BaseModel):
     sources: List[SourceMaterial]
     references: List[dict]
+
+# ▼▼▼ 在文件末尾添加下面这两个新的 Class ▼▼▼
+class SourceContent(BaseModel):
+    title: str
+    url: str
+    content: str
+
+class ComparePairRequest(BaseModel):
+    topic: str
+    references: List[SourceContent]
+# ▲▲▲ 新增 Class 结束 ▲▲▲
+
 
 # --- 数据库交互相关 (新增) ---
 
@@ -113,4 +128,15 @@ class Inquiry(InquiryBase):
 class NotesAndConnections(BaseModel):
     notes: List[Note]
     connections: List[Connection]
+    
+class DiscussionDetailRequest(BaseModel):
+    topic: str
+    debate_item: str
+    current_factions: List[str]
 
+class RefreshDebatesRequest(BaseModel):
+    topic: str
+    existing_debates: List[str]
+
+class DebatesResponse(BaseModel):
+    debates: List[str]
