@@ -93,7 +93,7 @@ def _get_simplified_clean_text(topic_name: str) -> str:
             return ""
         
         # 提取纯文本并进行繁简转换
-        plain_text = content_div.get_text(separator=' ', strip=True)
+        plain_text = content_div.get_text(separator='', strip=True)
         return convert_to_simplified(plain_text)
 
     except Exception as e:
@@ -299,33 +299,13 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     else:
         talk_content = f"关于'{topic_name}'的讨论页不存在或为空。"
     
-    # --- 核心修改 ---
-    # 1. 调用新增的LLM服务，分析各阵营作用
-    faction_roles_data = llm_service.analyze_faction_roles(topic_name, page.text)
-    
     # 2. 调用原有的LLM服务，分析对立观点和讨论页内容
     analysis_data = llm_service.analyze_viewpoints_and_debates(topic_name, page.text, talk_content)
     
     # 3. 从两次调用中分别提取所需数据
-    faction_roles = faction_roles_data.get("faction_roles", [])
     viewpoints = analysis_data.get("viewpoints", [])
     debates = analysis_data.get("debates", [])
     
-    # 4. 转换繁体字为简体字
-    # 转换faction_roles
-    converted_faction_roles = []
-    for faction in faction_roles:
-        converted_faction = {
-            "faction_name": convert_to_simplified(faction.get("faction_name", "")),
-            "roles": []
-        }
-        for role in faction.get("roles", []):
-            converted_role = {
-                "type": convert_to_simplified(role.get("type", "")),
-                "description": convert_to_simplified(role.get("description", ""))
-            }
-            converted_faction["roles"].append(converted_role)
-        converted_faction_roles.append(converted_faction)
     
     # 转换viewpoints
     converted_viewpoints = [{"side": convert_to_simplified(vp.get("side", "")), "text": convert_to_simplified(vp.get("text", ""))} for vp in viewpoints]
@@ -338,7 +318,6 @@ def get_topic_discussion_data(topic_name: str) -> dict:
     
     # 5. 将所有数据合并到最终的返回结果中
     return {
-        "faction_roles": converted_faction_roles,
         "viewpoints": converted_viewpoints,
         "debates": converted_debates,
         "full_discussion": converted_talk_content
@@ -606,7 +585,7 @@ def get_wiki_discussion_structured_content(topic_name: str) -> dict:
 
 
     
-def get_discussion_details(topic_name: str, debate_item: str, faction_names: List[str]) -> dict:
+def get_discussion_details(topic_name: str, debate_item: str) -> dict:
     """
     获取特定讨论要点的详细内容和多方观点分析
     """
@@ -621,7 +600,6 @@ def get_discussion_details(topic_name: str, debate_item: str, faction_names: Lis
             "detailed_viewpoints": [],
             "discussion_content": f"未能找到或解析关于'{topic_name}'的讨论页。",
             "source_sections": [],
-            "involved_factions": [] # 新增默认返回值
         }
 
     # 3. 将结构化内容格式化为AI易于理解的、带清晰标题的文本
@@ -639,8 +617,7 @@ def get_discussion_details(topic_name: str, debate_item: str, faction_names: Lis
          return {
             "detailed_viewpoints": [],
             "discussion_content": "讨论页内容为空，无法进行分析。",
-            "source_sections": [],
-            "involved_factions": [] # 新增默认返回值
+            "source_sections": []
         }
 
     # 5. 获取主页面内容（作为辅助参考，但AI主要依赖讨论页）
@@ -654,8 +631,7 @@ def get_discussion_details(topic_name: str, debate_item: str, faction_names: Lis
         topic_name, 
         debate_item, 
         main_page_text, 
-        formatted_talk_content,
-        tuple(faction_names)
+        formatted_talk_content
     )
     
     # (下面的数据处理逻辑保持不变)
@@ -670,18 +646,13 @@ def get_discussion_details(topic_name: str, debate_item: str, faction_names: Lis
     
     source_sections = [convert_to_simplified(section) for section in analysis_data.get("source_sections", [])]
     
-    # 【新增】获取并转换关联的阵营
-    involved_factions = [convert_to_simplified(faction) for faction in analysis_data.get("involved_factions", [])]
-    
     print(f"AI 参考的讨论页章节标题: {source_sections}")
-    print(f"AI 识别出的关联阵营: {involved_factions}")
     
     # 【修改返回】在最终返回的字典中加入关联阵营
     return {
         "detailed_viewpoints": detailed_viewpoints,
         "discussion_content": convert_to_simplified(analysis_data.get("discussion_content", "")),
-        "source_sections": source_sections,
-        "involved_factions": involved_factions # <-- 新增返回字段
+        "source_sections": source_sections
     }
 
 def refresh_debate_points(topic_name: str, existing_debates: List[str]) -> dict: # <-- 增加参数
@@ -710,3 +681,46 @@ def refresh_debate_points(topic_name: str, existing_debates: List[str]) -> dict:
 
     print(f"Successfully refreshed {len(converted_debates)} new debate points.")
     return {"debates": converted_debates}
+
+def create_timeline_event_from_selection(topic: str, text_snippet: str) -> dict:
+    """
+    统筹创建时间线事件的完整流程：
+    【V3 - 仅使用 RegEx 提取版】
+    1. 优先使用正则表达式检查精确或模糊时间 (e.g., "1935年10月", "1935年秋", "1935年").
+    2. 如果找到，直接使用。
+    3. 如果找不到，时间字段留空 ("")。
+    4. 永远不使用AI进行网络搜索或精炼时间。
+    5. 始终使用AI总结事件描述。
+    """
+    
+    final_year = ""
+    
+    # 这个RegEx会按顺序尝试匹配:
+    # 1. "YYYY年M月"
+    # 2. "YYYY年[春/夏/秋/冬]季?"
+    # 3. "YYYY年"
+    # 它会获取最长的有效匹配
+    # (?:...) 是一个非捕获组
+    date_match = re.search(
+        r'(\d{4}年(?:(?:\d{1,2}月)|(?:[\u6625\u590F\u79CB\u51AC]季?))?)', 
+        text_snippet
+    )
+
+    if date_match:
+        final_year = date_match.group(1)
+        print(f"RegEx V3 找到了时间: {final_year}")
+    else:
+        print("RegEx V3 未找到任何时间，时间将留空。")
+
+    # 无论是否找到时间，都调用AI *只* 总结事件
+    # (这是我们在上一版中添加的函数，现在是主力)
+    event_desc = llm_service.summarize_event_from_text_only(text_snippet)
+
+    # 组装最终结果
+    final_event = {
+        "year": convert_to_simplified(final_year),
+        "event": convert_to_simplified(event_desc),
+        "source_text": text_snippet
+    }
+
+    return final_event

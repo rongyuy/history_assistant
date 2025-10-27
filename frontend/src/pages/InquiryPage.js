@@ -1,5 +1,3 @@
-// src/pages/InquiryPage.js
-
 import { useEffect, useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { addEdge, applyNodeChanges, applyEdgeChanges, ReactFlowProvider  } from 'reactflow';
 import {
@@ -48,7 +46,7 @@ import {
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails, getWikiPreview, getWikiDiscussionHtmlContent, postComparePair,  refreshDebatePoints } from '../api';
+import { getWikiData, getViewpointAnalysis, postChatMessageStream, getSourcesComparison, getWikiHtmlContent, getDiscussionDetails, getWikiPreview, getWikiDiscussionHtmlContent, postComparePair,  refreshDebatePoints, postCreateTimelineEvent, getAIHints } from '../api';
 import ArgumentMap from '../ArgumentMap'
 import DOMPurify from 'dompurify'
 import { useSpeechRecognition } from './useSpeechRecognition';
@@ -82,52 +80,49 @@ export default function InquiryPage() {
     }
   });
 
+  const initialCards = useMemo(() => [
+    { id: 1, title: '我的历史视角', content: '', placeholder: '基于前面的学习，请简述您对该历史事件形成的整体看法和判断。' },
+    { id: 2, title: '事件的直接原因', content: '', placeholder: '分析并列出导致该事件发生的直接因素或导火索是什么？' },
+    { id: 3, title: '事件的深层原因', content: '', placeholder: '探讨事件背后更深层次的政治、经济、社会或文化原因。' },
+    { id: 4, title: '触发事件', content: '', placeholder: '是哪个具体的事件或行动最终引爆了整个事态？' },
+    { id: 5, title: '历史影响', content: '', placeholder: '该事件对当时及后来的历史发展产生了哪些短期和长期的影响？' },
+    { id: 6, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天的生活有什么启示？' },
+  ], []);
+  const [cards, setCards] = useState(initialCards);
+  const [chatTrigger, setChatTrigger] = useState(null);
+  const [chatValue, setChatValue] = useState('');
+
   const completeTask = (taskType) => {
     
     if (questProgress.completedModules.includes(taskType)) {
-      // 如果已经包含，说明任务已完成，直接退出函数，不执行任何操作
       return; 
     }
 
     setQuestProgress(prev => {
-      // 1. 定义标准的、不可变的任务顺序
       const taskOrder = ['史实认知', '观点辨析', '史料分析', '历史批判思维训练'];
-
-      // 2. 更新已完成列表和模块状态 (这部分逻辑保持不变)
-      // 使用 Set 来确保不会重复添加
       const newCompletedSet = new Set([...prev.completedModules, taskType]);
       const newCompletedModules = Array.from(newCompletedSet);
-
       const newModuleStates = {
         ...prev.moduleStates,
         [taskType]: 'completed'
       };
-
-      // 3. 【核心修改】智能地查找下一个未完成的任务
-      //   - 我们遍历标准任务顺序列表
-      //   - 找到第一个不在“已完成列表”中的任务
       const nextTask = taskOrder.find(task => !newCompletedSet.has(task));
 
-      // 4. 如果 nextTask 存在，说明还有任务未完成
       if (nextTask && newModuleStates[nextTask] !== 'completed') {
-        newModuleStates[nextTask] = 'active'; // 激活下一个任务
-        // 只有当下一个任务是“历史批判思维训练”时才显示特殊消息
+        newModuleStates[nextTask] = 'active'; 
         if (nextTask === '历史批判思维训练') {
             message.success('🎯 任务四：历史批判思维训练已激活！请在笔记工作区进行最终补充完善。');
         }
       }
 
-      // 5. 组合并返回最终的、正确的状态
       return { 
         ...prev, 
         completedModules: newCompletedModules, 
-        // 如果 nextTask 为 undefined (所有任务都已完成)，则显示“完成”
         currentTask: nextTask || '完成', 
         moduleStates: newModuleStates 
       };
     });
 
-    // 任务完成的提示消息 (这部分逻辑保持不变)
     const badgeMessages = {
       '史实认知': '🎉 恭喜！你已完成"史实认知"任务！',
       '观点辨析': '🎉 恭喜！你已完成"观点辨析"任务！',
@@ -153,15 +148,6 @@ export default function InquiryPage() {
     setNodes((nds) => [...nds, newNode]);
   };
 
-  const addBlankNode = () => {
-    const newNode = {
-      id: `node-${Date.now()}`,
-      type: 'textUpdater',
-      position: { x: Math.random() * 400, y: Math.random() * 400 },
-      data: { label: '双击编辑' },
-    };
-    setNodes((nds) => [...nds, newNode]);
-  }
 
   const handleSearch = () => {
     if (inputValue && inputValue.trim()) {
@@ -228,6 +214,11 @@ export default function InquiryPage() {
                 questProgress={questProgress}
                 setQuestProgress={setQuestProgress}
                 completeTask={completeTask} 
+                cards={cards} 
+                chatTrigger={chatTrigger} 
+                setChatTrigger={setChatTrigger}
+                chatValue={chatValue}
+                setChatValue={setChatValue}
               />
             ) : (
               <WelcomePage />
@@ -251,11 +242,16 @@ export default function InquiryPage() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
-              addBlankNode={addBlankNode}
+              addNodeToMap={addNodeToMap} 
               setNodes={setNodes}
               setEdges={setEdges}
               questProgress={questProgress}
               onCompleteAllTasks={() => completeTask('历史批判思维训练')}
+              cards={cards} 
+              setCards={setCards}
+              initialCards={initialCards}
+              setChatTrigger={setChatTrigger}
+              setChatValue={setChatValue}
             />
           </Sider>
         </Layout>
@@ -297,7 +293,7 @@ function WelcomePage() {
                                 3. <strong>史料分析</strong> - 对比多方史料证据
                             </Paragraph>
                             <Paragraph style={{ color: 'white', marginBottom: '0' }}>
-                                4. <strong>因果链分析</strong> - 形成你的历史判断
+                                4. <strong>历史批评思维训练</strong> - 形成你的历史判断
                             </Paragraph>
                         </div>
                         <Paragraph type="secondary">
@@ -310,16 +306,29 @@ function WelcomePage() {
     );
 }
 
-function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestProgress, completeTask }) {
-  const [msgs, setMsgs] = useState([
-        { role: 'ai', text: '🏛️ 欢迎，历史探索者！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？' },
-    ]);
+function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestProgress, completeTask, cards, chatTrigger, setChatTrigger, chatValue, setChatValue }) {
+
+  const initialWelcomeMessages = useMemo(() => ({
+    '任务一：史实认知': '我们已进入【史实认知】模块。请先阅读下方的摘要和时间线，然后可以点击“智能阅读”深入探索原文。准备好后，我们就可以开始提问式学习了。',
+    '任务二：观点辨析': '现在是【观点辨析】模块。这里列出了关于此事件的不同阵营作用和主要争议点，让我们一同分析其来源与立场。',
+    '任务三：史料分析': '欢迎来到【史料分析】模块。这里展示了从不同来源搜集到的史料片段，我将协助您进行对比与质询。',
+    '任务四：历史批判思维训练': '我们已进入【历史批判思维训练】模块。这项任务在右侧的“笔记工作区”完成。我将在这里引导你进行更高层次的反思。',
+    'generic': '🏛️ 欢迎，历史探索者！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？'
+  }), []); 
+
+  const chatHistoriesRef = useRef({
+    '任务一：史实认知': [{ role: 'ai', text: initialWelcomeMessages['任务一：史实认知'] }],
+    '任务二：观点辨析': [{ role: 'ai', text: initialWelcomeMessages['任务二：观点辨析'] }],
+    '任务三：史料分析': [{ role: 'ai', text: initialWelcomeMessages['任务三：史料分析'] }],
+    '任务四：历史批判思维训练': [{ role: 'ai', text: initialWelcomeMessages['任务四：历史批判思维训练'] }],
+  });
+
+  const [msgs, setMsgs] = useState([{ role: 'ai', text: initialWelcomeMessages['generic'] }]);
   const [loadingStates, setLoadingStates] = useState({
     summary: true,
     viewpoints: true,
     sources: true,
   });
-
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [coreData, setCoreData] = useState({
@@ -327,66 +336,86 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
     sources: { sources: [] },
   });
-
   const [fullHtmlContent, setFullHtmlContent] = useState('');
   const [isFullContentLoading, setIsFullContentLoading] = useState(false);
   const [aiContext, setAiContext] = useState('');
-  const [isChatOpen, setChatOpen] = useState(false);
+  const [isChatOpen, setChatOpen] = useState(false); 
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
-  const [chatValue, setChatValue] = useState('');
   const [activeModule, setActiveModule] = useState(null);
   const [selectedTextForMenu, setSelectedTextForMenu] = useState('');
-
   const [activeCollapseKeys, setActiveCollapseKeys] = useState([]);
   const [textForTimeline, setTextForTimeline] = useState(null);
-
   const [isShuffling, setIsShuffling] = useState(false);
+
+  // ▼▼▼ 核心修改 1/3：新增状态存储动态生成的菜单项 ▼▼▼
+  const [contextMenuItems, setContextMenuItems] = useState([]);
+  // ▲▲▲ 修改结束 ▲▲▲
 
   const { message } = AntdApp.useApp();
 
-  const handleMenuVisibleChange = (visible) => {
-    if (visible) {
+  // ▼▼▼ 核心修改 2/3：修改 handleMenuOpenChange 以动态生成菜单 ▼▼▼
+  const handleMenuOpenChange = (isOpen) => {
+    if (isOpen) {
       const currentSelectedText = window.getSelection().toString().trim();
       setSelectedTextForMenu(currentSelectedText);
+
+      // 基本菜单项
+      const baseItems = [
+        {
+          key: 'add-to-map',
+          label: '添加到论证图谱',
+          onClick: () => {
+            if (currentSelectedText) {
+              addNodeToMap(currentSelectedText);
+              message.success(`“${currentSelectedText.substring(0, 10)}...”已添加到图谱`);
+            } else {
+              message.warning('请先选择一段文本再右键操作');
+            }
+          },
+        },
+        {
+          key: 'ask-ai',
+          label: '问问AI这段内容...',
+          onClick: () => {
+            if (currentSelectedText) {
+                setChatValue(`针对“${currentSelectedText}”我想问：`);
+                // 触发聊天框时不再直接设置模块，而是用 chatTrigger
+                setChatTrigger('针对选中内容提问');
+                // setChatOpen(true); // 让 chatTrigger 的 useEffect 去打开
+                message.info('请针对选中内容继续提问');
+            } else {
+              message.warning('请先选择一段文本再右键操作');
+            }
+          }
+        },
+      ];
+
+      // 检查当前激活的 Collapse key 是否是模块一 ('facts')
+      const isModuleOneActive = activeCollapseKeys.includes('facts');
+
+      // 如果是模块一，添加 "添加为时间点"
+      if (isModuleOneActive) {
+        baseItems.push({
+          key: 'add-to-timeline',
+          label: '添加为时间点',
+          onClick: () => {
+            if (currentSelectedText) {
+              setTextForTimeline(currentSelectedText);
+            } else {
+              message.warning('请先选择一段文本再右键操作');
+            }
+          },
+        });
+      }
+      
+      // 更新状态
+      setContextMenuItems(baseItems);
     }
   };
+  // ▲▲▲ 修改结束 ▲▲▲
 
-  const menuItems = [
-    {
-      key: 'add-to-map',
-      label: '添加到论证图谱',
-      onClick: () => {
-        if (selectedTextForMenu) {
-          addNodeToMap(selectedTextForMenu);
-          message.success(`“${selectedTextForMenu.substring(0, 10)}...”已添加到图谱`);
-        } else {
-          message.warning('无法获取选中文本，请重试');
-        }
-      },
-    },
-    {
-      key: 'ask-ai',
-      label: '问问AI这段内容...',
-      onClick: () => {
-        if (selectedTextForMenu) {
-            setChatValue(`针对“${selectedTextForMenu}”我想问：`);
-            setChatOpen(true);
-            message.info('请针对选中内容继续提问');
-        }
-      }
-    },
-    {
-      key: 'add-to-timeline',
-      label: '添加为时间点',
-      onClick: () => {
-        if (selectedTextForMenu) {
-          setTextForTimeline(selectedTextForMenu); // <-- 关键：只更新 state
-        } else {
-          message.warning('无法获取选中文本，请重试');
-        }
-      },
-    }
-  ];
+  // 移除静态的 menuItems 定义
+  // const menuItems = [...] 
 
   useEffect(() => {
     if (!topic) return;
@@ -468,27 +497,29 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     }
   };
 
-  const handleActivateModule = async (moduleName) => {
-    if (activeModule === moduleName && isChatOpen) {
-      return;
+  const handleActivateModule = useCallback(async (moduleName) => {
+    if (moduleName === '针对选中内容提问') {
+        setCurrentModule('针对选中内容提问');
+        setActiveModule('针对选中内容提问');
+        setAiContext('你现在正在指导学生【针对选中内容提问】。');
+        setChatOpen(true);
+        return; 
     }
     
-    if (isChatOpen && activeModule !== moduleName) {
-        setMsgs([]);
+    if (activeModule === moduleName && isChatOpen) {
+      return; 
     }
 
     setCurrentModule(moduleName);
     setActiveModule(moduleName);
 
-    const welcomeMessages = {
-        '任务一：史实认知': '我们已进入【史实认知】模块。请先阅读下方的摘要和时间线，然后可以点击“智能阅读”深入探索原文。准备好后，我们就可以开始提问式学习了。',
-        '任务二：观点辨析': '现在是【观点辨析】模块。这里列出了关于此事件的不同阵营作用和主要争议点，让我们一同分析其来源与立场。',
-        '任务三：史料分析': '欢迎来到【史料分析】模块。这里展示了从不同来源搜集到的史料片段，我将协助您进行对比与质询。',
-    };
-
-    const welcomeText = welcomeMessages[moduleName] || `已激活【${moduleName}】模块。`;
-    const moduleWelcomeMessage = { role: 'ai', text: welcomeText };
-    setMsgs(prevMsgs => [moduleWelcomeMessage]);
+    if (chatHistoriesRef.current[moduleName]) {
+      setMsgs(chatHistoriesRef.current[moduleName]);
+    } else {
+      const newWelcome = { role: 'ai', text: `已激活【${moduleName}】模块。` };
+      setMsgs([newWelcome]);
+      chatHistoriesRef.current[moduleName] = [newWelcome];
+    }
 
     let context = '';
     let aiPrompt = '';
@@ -510,11 +541,23 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n')}`;
         aiPrompt = '你现在正在指导学生完成"史料分析"任务。请利用苏格拉底教育法，通过提问，帮助学生对比多方史料证据。';
         break;
+      case '任务四：历史批判思维训练':
+        taskType = '历史批判思维训练';
+        context = cards.map(card => `【${card.title}】:\n${card.content || '未填写'}`).join('\n\n');
+        aiPrompt = '你现在正在指导学生完成"历史批判思维训练"任务。请利用苏格拉底教育法，引导学生进行更高层次的反思，融合偶然性、复杂性、历史之重要性和伦理维度。';
+        break;
     }
 
     setAiContext(`${aiPrompt}\n\n学习材料:\n${context}`);
     setChatOpen(true);
-  };
+  }, [activeModule, isChatOpen, coreData, cards, setAiContext, setChatOpen, setCurrentModule, setActiveModule, setMsgs, chatHistoriesRef]);
+
+  useEffect(() => {
+    if (chatTrigger) {
+      handleActivateModule(chatTrigger); 
+      setChatTrigger(null); 
+    }
+  }, [chatTrigger, setChatTrigger, handleActivateModule]); 
   
   const handleCollapseChange = (keys) => {
     const expandedKey = keys.find(key => !activeCollapseKeys.includes(key));
@@ -532,8 +575,15 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       }
     }
     
+    // 始终更新 activeCollapseKeys，以便 handleMenuOpenChange 能获取最新状态
     setActiveCollapseKeys(keys);
   };
+
+  useEffect(() => {
+    if (activeModule && chatHistoriesRef.current[activeModule]) {
+      chatHistoriesRef.current[activeModule] = msgs;
+    }
+  }, [msgs, activeModule]); 
 
   const handleRefreshSources = () => {
     message.loading({ content: `正在获取新一组对比史料...`, key: 'refresh_sources' });
@@ -563,26 +613,22 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     setIsShuffling(true);
     message.loading({ content: '正在为您生成新的史料对读...', key: 'shuffle_sources' });
 
-    // 从现有参考文献列表中随机挑选两个
     const shuffled = [...references].sort(() => 0.5 - Math.random());
     const selectedPair = shuffled.slice(0, 2);
 
-    // 核心修复：在发送前，使用 .map() 来净化数据结构，确保每个对象只包含后端需要的字段
     const cleanSelectedPair = selectedPair.map(ref => ({
       title: ref.title,
       url: ref.url,
       content: ref.content
     }));
 
-    // 调用我们刚刚创建的 postComparePair API 函数，并传入净化后的数据
     postComparePair(topic, cleanSelectedPair)
       .then(res => {
-        // 后端返回的数据结构是 { sources: [...] }
         setCoreData(prev => ({
           ...prev,
           sources: {
-            ...prev.sources, // 保持原有的参考文献列表 (references) 不变
-            sources: res.data.sources // 只更新用于对读展示的史料 (sources)
+            ...prev.sources, 
+            sources: res.data.sources 
           }
         }));
         message.success({ content: '已成功生成新的史料对读！', key: 'shuffle_sources' });
@@ -598,11 +644,13 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
   return (
     <div>
+      {/* ▼▼▼ 核心修改 3/3：让主 Dropdown 使用动态生成的 contextMenuItems ▼▼▼ */}
       <Dropdown
-         menu={{ items: menuItems.filter(item => selectedTextForMenu || (item.key !== 'ask-ai' && item.key !== 'add-to-map')) }}
+        menu={{ items: contextMenuItems }}
         trigger={['contextMenu']}
-        onOpenChange={handleMenuVisibleChange}
+        onOpenChange={handleMenuOpenChange}
       >
+      {/* ▲▲▲ 修改结束 ▲▲▲ */}
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Title level={3} style={{ marginBottom: 0 }}>
@@ -618,7 +666,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
             style={{ background: "transparent" }}
             items={[
               {
-                key: "facts",
+                key: "facts", // 模块一的 key
                 label: <ModuleHeader
                   icon={<BookOutlined />}
                   title="任务一：史实认知"
@@ -641,7 +689,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                 ),
               },
               {
-                key: "views",
+                key: "views", // 模块二的 key
                 label: <ModuleHeader
                   icon={<BulbOutlined />}
                   title="任务二：观点辨析"
@@ -655,13 +703,12 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                   <ViewpointAnalysis 
                     data={coreData.viewpoints} 
                     topic={topic} 
-                    // ▼▼▼ 在这里添加下面这行新 prop ▼▼▼
                     isActive={activeCollapseKeys.includes('views')}
                   />
                 ),
               },
               {
-                key: "sources",
+                key: "sources", // 模块三的 key
                 label: <ModuleHeader
                   icon={<BookOutlined />}
                   title="任务三：史料分析"
@@ -674,19 +721,17 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                   loadingStates.sources ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="正在抓取和对比多方史料..." /></div> : 
                   <SourcesComparisonCard 
                     data={coreData.sources} 
-                    onRefresh={handleRefreshSources} // 这是“更新列表”的函数
+                    onRefresh={handleRefreshSources} 
                     isLoading={loadingStates.sources}
-                    // ▼▼▼ 在这里添加下面这两行新 props ▼▼▼
-                    onShuffle={handleShuffleSources} // 这是“更换一组”的函数
-                    isShuffling={isShuffling} // 这是“更换一组”的加载状态
-                    // ▲▲▲ 添加结束 ▲▲▲
+                    onShuffle={handleShuffleSources} 
+                    isShuffling={isShuffling} 
                   />
                 ),
               },
             ]}
           />
         </Space>
-      </Dropdown>
+      </Dropdown> {/* 主 Dropdown 结束 */}
 
        <AIChatDock
          topic={topic}
@@ -790,7 +835,7 @@ function ModuleHeader({ icon, title, hint, onActivate, isCompleted = false, task
   );
 }
 
-function EditableTimelineItem({ item, onChange, onDelete, onClick }) {
+function EditableTimelineItem({ item, onChange, onDelete, onClick, onSort }) {
   const {
     attributes,
     listeners,
@@ -832,6 +877,8 @@ function EditableTimelineItem({ item, onChange, onDelete, onClick }) {
         <Input
           value={item.year}
           onChange={(e) => onChange(item.id, 'year', e.target.value)}
+          onBlur={onSort} 
+          onPressEnter={onSort} 
           placeholder="年份/日期"
           style={{ width: 120, marginRight: 8 }}
         />
@@ -870,57 +917,82 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   const summaryCache = useRef(new Map()).current;
   const [timelineItems, setTimelineItems] = useState([]);
   
-  // ▼▼▼ 核心修改：使用新的 state 来存储要高亮的原文 ▼▼▼
   const [highlightedSourceText, setHighlightedSourceText] = useState('');
+
+  const parseYearMonth = (yearString) => {
+    if (!yearString) return 0;
+    
+    const yearMatch = yearString.match(/(\d{4})/);
+    if (!yearMatch) return 0;
+    
+    const year = parseInt(yearMatch[0], 10);
+    let month = 0; 
+
+    const monthMatch = yearString.match(/(\d{1,2})月/);
+    if (monthMatch) {
+      month = parseInt(monthMatch[1], 10);
+    } else {
+      if (yearString.includes('春')) {
+        month = 3; 
+      } else if (yearString.includes('夏')) {
+        month = 6; 
+      } else if (yearString.includes('秋')) {
+        month = 9; 
+      } else if (yearString.includes('冬')) {
+        month = 12; 
+      }
+    }
+    
+    return year * 100 + month;
+  };
+
+  const handleAddNewTimelineItem = (newItem) => {
+    setTimelineItems(prevItems => {
+      const updatedItems = [...prevItems, newItem];
+      updatedItems.sort((a, b) => parseYearMonth(a.year) - parseYearMonth(b.year));
+      return updatedItems;
+    });
+  };
 
   useEffect(() => {
     if (data && data.timeline) {
-      // 辅助函数，用于将 "YYYY年M月" 格式的字符串转换为可比较的数字
-      const parseYearMonth = (yearString) => {
-        if (!yearString) return 0;
-        const numbers = yearString.match(/\d+/g); // 提取字符串中所有的数字
-        // 处理 "YYYY年M月" 的情况
-        if (numbers && numbers.length >= 2) {
-          const year = parseInt(numbers[0], 10);
-          const month = parseInt(numbers[1], 10);
-          return year * 100 + month; // 例如，"1936年12月" 变为 193612
-        }
-        // 只处理 "YYYY年" 的情况
-        if (numbers && numbers.length === 1) {
-          const year = parseInt(numbers[0], 10);
-          return year * 100; // 例如，"1936年" 变为 193600
-        }
-        return 0; // 对于无法解析的格式，返回0
-      };
-
-      // 创建一个副本并对其进行排序
       const sortedTimeline = [...data.timeline].sort((a, b) => {
         return parseYearMonth(a.year) - parseYearMonth(b.year);
       });
-
-      // 使用排序后的数组来设置 state
       setTimelineItems(sortedTimeline.map((item, index) => ({ ...item, id: `timeline-${index}` })));
     }
   }, [data]);
 
   useEffect(() => {
-    // 确保 textForTimeline 不为空
-    if (textForTimeline) {
-      // 创建新的时间线项目
-      const newItem = {
-        id: `timeline-manual-${Date.now()}`,
-        year: '',
-        event: '',
-        source_text: textForTimeline,
-      };
-      // 添加到现有的时间线列表中
-      setTimelineItems(items => [...items, newItem]);
-      message.success('已从原文添加新时间点，请填写年份和事件描述。');
+      if (textForTimeline) {
+        const handleAICreate = async (text) => {
+            message.loading({ content: 'AI正在分析并查找时间点...', key: 'timeline_ai' });
+            try {
+              const response = await postCreateTimelineEvent(topic, text);
+              
+              const aiGeneratedEvent = response.data;
 
-      // 操作完成，调用回调函数清空父组件的 state
-      onTimelineActionComplete();
-    }
-  }, [textForTimeline, onTimelineActionComplete]);
+              const newItem = {
+                ...aiGeneratedEvent,
+                source_text: text,
+                id: `timeline-llm-${Date.now()}`
+              };
+              
+              handleAddNewTimelineItem(newItem);
+
+              message.success({ content: 'AI已成功生成并添加时间点！', key: 'timeline_ai' });
+            } catch (error) {
+              console.error("AI生成时间点失败:", error);
+              message.error({ content: 'AI生成失败，请稍后再试。', key: 'timeline_ai' });
+            } finally {
+              onTimelineActionComplete();
+            }
+        };
+
+        handleAICreate(textForTimeline);
+      }
+  }, [textForTimeline, onTimelineActionComplete, topic]);
+
 
   const sensors = useSensors(useSensor(PointerSensor));
 
@@ -935,7 +1007,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     }
   };
 
-  // ▼▼▼ 在这里添加新的辅助函数 ▼▼▼
   const robustHighlight = (htmlString, textToHighlight) => {
     if (!textToHighlight || !htmlString) {
       return htmlString;
@@ -944,13 +1015,14 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = htmlString;
 
-    // --- 步骤 1: 拼接与映射 ---
+    const normalizeText = (text) => text.trim();
+    const normalizedHighlightText = normalizeText(textToHighlight);
+
     const textSegments = [];
     let fullText = '';
     const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT, null, false);
     let node;
     while (node = walker.nextNode()) {
-      // 忽略只包含空白的文本节点
       if (node.nodeValue.trim() === '') continue;
 
       textSegments.push({
@@ -961,90 +1033,83 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
       fullText += node.nodeValue;
     }
 
-    // --- 步骤 2: 规范化并匹配 ---
-    // 创建一个统一的文本清理函数，确保匹配源和目标使用完全相同的标准
-    const normalizeText = (text) => text.replace(/\s+/g, ' ').trim();
-    
     const normalizedFullText = normalizeText(fullText);
-    const normalizedHighlightText = normalizeText(textToHighlight);
 
     const matchStartIndex = normalizedFullText.indexOf(normalizedHighlightText);
+
     if (matchStartIndex === -1) {
-      // 如果找不到，直接返回原始html
       return htmlString;
     }
     const matchEndIndex = matchStartIndex + normalizedHighlightText.length;
+    
+    const findOriginalIndex = (rawText, normalizedIndex) => {
+      let trimStartIndex = 0;
+      while (trimStartIndex < rawText.length && /\s/.test(rawText[trimStartIndex])) {
+        trimStartIndex++;
+      }
+      return trimStartIndex + normalizedIndex;
+    };
 
-    // --- 步骤 3: 反向映射与高亮 ---
-    // 从后往前处理节点，这样在分割文本节点时不会影响后续节点的索引
     for (let i = textSegments.length - 1; i >= 0; i--) {
       const segment = textSegments[i];
       const { node, start, end } = segment;
 
-      // 调整原始文本的起始和结束索引以匹配规范化后的文本
-      // 这是一个简化映射，适用于大多数情况
       const effectiveStart = normalizeText(fullText.substring(0, start)).length;
       const effectiveEnd = normalizeText(fullText.substring(0, end)).length;
       
-      // 检查当前文本节点是否与高亮区域有交集
       if (effectiveStart < matchEndIndex && effectiveEnd > matchStartIndex) {
         const highlightStartInNode = Math.max(0, matchStartIndex - effectiveStart);
         const highlightEndInNode = Math.min(effectiveEnd, matchEndIndex) - effectiveStart;
-        
-        // 找到在原始、未规范化的文本中对应的真实索引
-        const findOriginalIndex = (normalizedIndex) => {
-            let normalizedCount = 0;
-            for(let j = 0; j < node.nodeValue.length; j++) {
-                if(!/\s/.test(node.nodeValue[j-1]) || !/\s/.test(node.nodeValue[j])) {
-                   normalizedCount++;
-                }
-                if(normalizedCount >= normalizedIndex) return j;
-            }
-            return node.nodeValue.length;
-        };
 
-        const originalHighlightStart = findOriginalIndex(highlightStartInNode);
-        const originalHighlightEnd = findOriginalIndex(highlightEndInNode);
+        const originalHighlightStart = findOriginalIndex(node.nodeValue, highlightStartInNode);
+        const originalHighlightEnd = findOriginalIndex(node.nodeValue, highlightEndInNode);
 
         if (originalHighlightStart < originalHighlightEnd) {
-             const range = document.createRange();
-             range.setStart(node, originalHighlightStart);
-             range.setEnd(node, originalHighlightEnd);
+          try {
+            const originalText = node.nodeValue;
+            const parent = node.parentNode; 
 
-             const highlightSpan = document.createElement('span');
-             highlightSpan.className = 'timeline-highlight';
-             range.surroundContents(highlightSpan);
+            if (parent) {
+              const beforeText = originalText.substring(0, originalHighlightStart); 
+              const highlightedText = originalText.substring(originalHighlightStart, originalHighlightEnd); 
+              const afterText = originalText.substring(originalHighlightEnd); 
+
+              const highlightSpan = document.createElement('span');
+              highlightSpan.className = 'timeline-highlight';
+              highlightSpan.textContent = highlightedText;
+
+              if (beforeText) {
+                parent.insertBefore(document.createTextNode(beforeText), node);
+              }
+              parent.insertBefore(highlightSpan, node);
+              if (afterText) {
+                parent.insertBefore(document.createTextNode(afterText), node);
+              }
+              parent.removeChild(node);
+            }
+          } catch (e) {
+            console.error("Highlighting error (manual node split):", e, node.nodeValue, originalHighlightStart, originalHighlightEnd);
+          }
         }
       }
     }
     return tempDiv.innerHTML;
   };
-  // ▲▲▲ 新函数结束 ▲▲▲
 
-  // ▼▼▼ 核心修改：重写整个 handleTimelineClick 函数 ▼▼▼
-  const handleTimelineClick = (item) => {
+  const handleTimelineClick = async (item) => { 
     const sourceText = item?.source_text?.trim();
-
-    // 检查是否有可供高亮的原文
     if (!sourceText) {
-      // 如果原文未展开，则清空之前的高亮
       if (!isExpanded) {
         setHighlightedSourceText('');
       }
       return;
     }
-    
-    // 如果原文视图未展开，则先展开它
     if (!isExpanded) {
-      toggleExpand();
+      await toggleExpand(); 
     }
-    
-    // 设置需要高亮的文本
     setHighlightedSourceText(sourceText);
     message.success('已在原文中定位到相关内容！');
   };
-  // ▲▲▲ 修改结束 ▲▲▲
-
 
   const handleLinkMouseOver = useCallback(async (e) => {
     const target = e.target.closest('a[href^="https://zh.wikipedia.org/wiki/"]');
@@ -1073,30 +1138,21 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   }, [topic, summaryCache]);
 
   const handleLinkMouseOut = useCallback(() => { currentTargetRef.current = null; hideTimer.current = setTimeout(() => { setPopover(p => ({ ...p, visible: false })); }, 200); }, []);
-  const handleTimelineChange = (id, field, value) => { setTimelineItems(items => items.map(item => item.id === id ? { ...item, [field]: value } : item)); };
-  const handleAddTimelineItem = () => { setTimelineItems(items => [...items, { id: `timeline-new-${Date.now()}`, year: '', event: '' }]); };
-  
-  // ▼▼▼ 新增函数：从原文选择文本来添加时间线 ▼▼▼
-  const handleAddTimelineItemFromSelection = () => {
-    if (!isExpanded) {
-      message.warning('请先展开原文才能选择文本。');
-      return;
-    }
-    const selectedText = window.getSelection().toString().trim();
-    if (!selectedText) {
-      message.info('请先在原文中选择一段文本，然后再点击此按钮。');
-      return;
-    }
-    const newItem = {
-      id: `timeline-manual-${Date.now()}`,
-      year: '',
-      event: '',
-      source_text: selectedText,
-    };
-    setTimelineItems(items => [...items, newItem]);
-    message.success('已从原文添加新时间点，请填写年份和事件描述。');
+  const handleTimelineChange = (id, field, value) => { 
+    setTimelineItems(items => 
+      items.map(item => 
+        item.id === id ? { ...item, [field]: value } : item
+      )
+    ); 
   };
-  // ▲▲▲ 新增函数结束 ▲▲▲
+  const handleTimelineSort = () => {
+    setTimelineItems(items => {
+      const sortedItems = [...items]; 
+      sortedItems.sort((a, b) => parseYearMonth(a.year) - parseYearMonth(b.year));
+      return sortedItems;
+    });
+  };
+  const handleAddTimelineItem = () => { setTimelineItems(items => [...items, { id: `timeline-new-${Date.now()}`, year: '', event: '' }]); };
   
   const handleDeleteTimelineItem = (id) => { setTimelineItems(items => items.filter(item => item.id !== id)); };
   const handleSaveNotes = () => { message.success('笔记已保存！(模拟)'); };
@@ -1106,7 +1162,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   const toggleExpand = useCallback(async () => {
     const nextState = !isExpanded;
     setIsExpanded(nextState);
-    // 当收起时，清除高亮
     if (!nextState) {
       setHighlightedSourceText('');
     }
@@ -1161,9 +1216,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
       return sanitizedContent;
     }
 
-    // 使用我们全新的、更强大的函数来处理
     return sanitizedContent.map(section => {
-      // 对每个部分都尝试进行高亮
       const newHtml = robustHighlight(section.html_content, highlightedSourceText);
       return { ...section, html_content: newHtml };
     });
@@ -1273,6 +1326,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
                       onChange={handleTimelineChange} 
                       onDelete={handleDeleteTimelineItem}
                       onClick={() => handleTimelineClick(item)}
+                      onSort={handleTimelineSort} 
                     /> 
                   ))
                 ) : ( 
@@ -1312,93 +1366,6 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   );
 }
 
-function EditableFactionCard({ faction, index, onChange, onDelete, isHighlighted }) {
-  // --- ▼▼▼ 从这里开始是新增的代码 ▼▼▼ ---
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id: faction.id }); // 使用 faction.id 作为唯一标识
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    touchAction: 'none', // 防止在移动设备上拖动时页面滚动
-  };
-  // --- ▲▲▲ 新增代码结束 ▲▲▲ ---
-
-  const handleNameChange = (e) => {
-    onChange(index, 'faction_name', e.target.value);
-  };
-
-  const handleRoleChange = (roleIndex, newDescription) => {
-    const updatedRoles = [...faction.roles];
-    updatedRoles[roleIndex] = { ...updatedRoles[roleIndex], description: newDescription };
-    onChange(index, 'roles', updatedRoles);
-  };
-
-  return (
-    // --- ▼▼▼ 这个最外层的 div 是新增的，用于应用拖拽样式 ▼▼▼ ---
-    <div ref={setNodeRef} style={style} {...attributes}>
-      <div style={{
-        backgroundColor: '#fafafa',
-        padding: '12px',
-        borderRadius: '6px',
-        marginBottom: '12px',
-        textAlign: 'left',
-        border: '1px solid #f0f0f0',
-        transition: 'box-shadow 0.3s ease-in-out, transform 0.3s ease-in-out',
-        boxShadow: isHighlighted ? '0 0 12px rgba(24, 144, 255, 0.5)' : 'none',
-        transform: isHighlighted ? 'scale(1.02)' : 'scale(1)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          {/* --- ▼▼▼ 在标题输入框前增加拖拽句柄 ▼▼▼ --- */}
-          <Space align="center">
-            <Button
-              type="text"
-              icon={<HolderOutlined />}
-              {...listeners} // 将拖拽事件监听器绑定到这个按钮上
-              style={{ cursor: 'grab' }}
-            />
-            <Input
-              value={faction.faction_name}
-              onChange={handleNameChange}
-              style={{ fontWeight: 'bold', fontSize: '16px' }}
-              variant="borderless"
-              placeholder="阵营名称"
-            />
-          </Space>
-          {/* --- ▲▲▲ 修改结束 ▲▲▲ --- */}
-          <Button
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => onDelete(index)}
-          />
-        </div>
-        <div>
-          {faction.roles.map((role, roleIndex) => (
-            <div key={roleIndex} style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '8px' }}>
-              <Tag color={role.type === '正面作用' ? 'success' : 'error'} style={{ flexShrink: 0, marginRight: 8, marginTop: 4 }}>
-                {role.type}
-              </Tag>
-              <TextArea
-                value={role.description}
-                onChange={(e) => handleRoleChange(roleIndex, e.target.value)}
-                placeholder={`编辑${role.type}...`}
-                autoSize={{ minRows: 1, maxRows: 4 }}
-                variant="filled"
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ViewpointAnalysis({ data, topic, isActive }) {
     const [selectedDebate, setSelectedDebate] = useState(null);
     const [detailedViewpoints, setDetailedViewpoints] = useState([]);
@@ -1406,90 +1373,37 @@ function ViewpointAnalysis({ data, topic, isActive }) {
     const [showFullDiscussion, setShowFullDiscussion] = useState(false);
     const [discussionHtmlContent, setDiscussionHtmlContent] = useState(null);
     const [isDiscussionHtmlLoading, setIsDiscussionHtmlLoading] = useState(false);
-    const [editableFactionRoles, setEditableFactionRoles] = useState([]);
     const [highlightedTocItems, setHighlightedTocItems] = useState([]);
     const [scrollToSectionTitle, setScrollToSectionTitle] = useState(null);
-    const [highlightedFactions, setHighlightedFactions] = useState([]);
     const [displayDebates, setDisplayDebates] = useState(data.debates || []);
     const [isRefreshingDebates, setIsRefreshingDebates] = useState(false);
     const contentRef = useRef(null);
-    const sensors = useSensors(useSensor(PointerSensor));
-
+    
     const { message } = AntdApp.useApp();
 
     useEffect(() => {
-      // 当这个组件所在的折叠面板不再是激活状态时（被收起）
       if (!isActive) {
-        // 重置所有与点击交互相关的 state
         setSelectedDebate(null);
         setDetailedViewpoints([]);
-        setHighlightedFactions([]);
         setHighlightedTocItems([]);
         setScrollToSectionTitle(null);
       }
-    }, [isActive]); // 这个 effect 会在 isActive 状态改变时运行
-
-    useEffect(() => {
-        const initialRoles = data.faction_roles?.map((role, index) => ({
-            ...role,
-            id: `faction-${index}-${Date.now()}` // 添加唯一ID以优化渲染
-        })) || [];
-        setEditableFactionRoles(initialRoles);
-    }, [data.faction_roles]);
-
-  const handleFactionDragEnd = (event) => {
-        const { active, over } = event;
-        if (active.id !== over.id) {
-            setEditableFactionRoles((items) => {
-                const oldIndex = items.findIndex((item) => item.id === active.id);
-                const newIndex = items.findIndex((item) => item.id === over.id);
-                return arrayMove(items, oldIndex, newIndex);
-            });
-        }
-    };
-
-  const handleFactionChange = (index, field, value) => {
-      const newRoles = [...editableFactionRoles];
-      newRoles[index] = { ...newRoles[index], [field]: value };
-      setEditableFactionRoles(newRoles);
-  };
-
-  const handleDeleteFaction = (indexToDelete) => {
-      setEditableFactionRoles(roles => roles.filter((_, index) => index !== indexToDelete));
-      message.success('阵营已删除');
-  };
-
-  const handleAddFaction = () => {
-      const newFaction = {
-          id: `faction-new-${Date.now()}`,
-          faction_name: '新阵营（点击编辑）',
-          roles: [
-              { type: '正面作用', description: '' },
-              { type: '负面作用', description: '' }
-          ]
-      };
-      setEditableFactionRoles(roles => [...roles, newFaction]);
-  };
+    }, [isActive]); 
 
   const handleRefreshDebates = async (e) => {
-      // 阻止事件冒泡，防止意外关闭折叠面板
       e.stopPropagation();
 
       setIsRefreshingDebates(true);
       message.loading({ content: '正在获取新一组讨论要点...', key: 'refresh_debates' });
 
       try {
-          // 调用我们新建的API
           const response = await refreshDebatePoints(topic, displayDebates);
           const newDebates = response.data.debates || [];
 
-          // 更新要点列表
           setDisplayDebates(newDebates);
 
-          // 【重要】重置所有相关的选中状态
           setSelectedDebate(null);
           setDetailedViewpoints([]);
-          setHighlightedFactions([]);
           setHighlightedTocItems([]);
           setScrollToSectionTitle(null);
 
@@ -1503,44 +1417,34 @@ function ViewpointAnalysis({ data, topic, isActive }) {
   };
 
   const handleDebateClick = async (debateItem, isRefresh = false) => {
-      // 2. 在判断条件中增加对 isRefresh 的检查
       if (selectedDebate === debateItem && !isRefresh) { 
           setSelectedDebate(null);
           setDetailedViewpoints([]);
-          setHighlightedFactions([]);
           setHighlightedTocItems([]); 
-          setScrollToSectionTitle(null); // <-- 新增：清空滚动预约
+          setScrollToSectionTitle(null);
 
           return;
       }
 
       setLoading(true);
       setSelectedDebate(debateItem);
-      setHighlightedFactions([]); 
-      setHighlightedTocItems([]); // 清空上一次的高亮
-      setScrollToSectionTitle(null); // 清空上一次的滚动预约
+      setHighlightedTocItems([]); 
+      setScrollToSectionTitle(null); 
 
       try {
-          const currentFactionNames = editableFactionRoles.map(f => f.faction_name);
-          const response = await getDiscussionDetails(topic, debateItem, currentFactionNames);
+          const response = await getDiscussionDetails(topic, debateItem);
           const detailedData = response.data;
           setDetailedViewpoints(detailedData.detailed_viewpoints || []);
-          setHighlightedFactions(detailedData.involved_factions || []);
           setHighlightedTocItems(detailedData.source_sections || []);
 
-          // ▼▼▼ 新增的核心逻辑 ▼▼▼
           const firstSectionTitle = detailedData.source_sections?.[0];
 
-          // 如果AI返回了参考章节
           if (firstSectionTitle) {
-              // 1. 如果讨论页还没展开，就调用函数去展开它
               if (!showFullDiscussion) {
                   handleShowFullDiscussion();
               }
-              // 2. "预约"一个滚动操作，把目标标题存入 state
               setScrollToSectionTitle(firstSectionTitle);
           }
-          // ▲▲▲ 新增逻辑结束 ▲▲▲
 
       } catch (error) {
           console.error('获取讨论详情失败:', error);
@@ -1552,27 +1456,22 @@ function ViewpointAnalysis({ data, topic, isActive }) {
   };
 
     useEffect(() => {
-      // 检查是否有一个“待滚动”的标题，并且讨论区内容已经加载完毕
       if (scrollToSectionTitle && discussionHtmlContent?.content) {
         
-        // 从内容中找到标题匹配的章节
         const sectionToScrollTo = discussionHtmlContent.content.find(
           (s) => s.title === scrollToSectionTitle
         );
 
         if (sectionToScrollTo) {
-          // 使用 setTimeout 确保DOM已经渲染完毕，然后再执行滚动
           setTimeout(() => {
             handleScrollTo(sectionToScrollTo.id);
-            // 滚动完成后，清空预约，防止不必要的重复滚动
             setScrollToSectionTitle(null);
-          }, 100); // 100毫秒的延迟通常足够
+          }, 100); 
         } else {
-          // 如果没找到对应的章节，也清空预约
           setScrollToSectionTitle(null);
         }
       }
-    }, [scrollToSectionTitle, discussionHtmlContent]); // 依赖项：当“预约”或“内容”变化时触发
+    }, [scrollToSectionTitle, discussionHtmlContent]); 
 
     const handleShowFullDiscussion = async () => {
         const nextState = !showFullDiscussion;
@@ -1650,41 +1549,6 @@ function ViewpointAnalysis({ data, topic, isActive }) {
     return (
         <Card size="small" variant="bordered" style={{ borderStyle: "dashed", textAlign: 'left' }}>
             <Space direction="vertical" style={{ width: "100%" }}>
-                <div style={{ marginBottom: 16 }}>
-                    <div style={{ textAlign: 'left', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text strong>不同阵营在此事件中的作用分析</Text>
-                        <Button size="small" onClick={() => message.info('内容已保存 (模拟)')}>保存编辑</Button>
-                    </div>
-
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFactionDragEnd}>
-                        <SortableContext items={editableFactionRoles.map(f => f.id)} strategy={verticalListSortingStrategy}>
-                            {editableFactionRoles.map((faction, index) => {
-                                const isHighlighted = highlightedFactions.includes(faction.faction_name);
-                                return (
-                                    <EditableFactionCard
-                                        key={faction.id}
-                                        index={index}
-                                        faction={faction}
-                                        onChange={handleFactionChange}
-                                        onDelete={handleDeleteFaction}
-                                        isHighlighted={isHighlighted}
-                                    />
-                                );
-                            })}
-                        </SortableContext>
-                    </DndContext>
-
-                    <Button
-                        type="dashed"
-                        onClick={handleAddFaction}
-                        block
-                        icon={<PlusOutlined />}
-                    >
-                        添加阵营
-                    </Button>
-                    <Divider dashed />
-                </div>
-
                 <List
                     size="small"
                     header={
@@ -1697,7 +1561,7 @@ function ViewpointAnalysis({ data, topic, isActive }) {
                                     size="small"
                                     icon={<SyncOutlined />}
                                     loading={isRefreshingDebates}
-                                    onClick={handleRefreshDebates} // <-- 绑定新函数
+                                    onClick={handleRefreshDebates}
                                 >
                                     更新
                                 </Button>
@@ -1735,7 +1599,6 @@ function ViewpointAnalysis({ data, topic, isActive }) {
                                         icon={<SyncOutlined />}
                                         size="small"
                                         onClick={(e) => {
-                                            // 阻止事件冒泡，防止触发外层的 List.Item 的 onClick
                                             e.stopPropagation(); 
                                             handleDebateClick(debateItem,true);
                                         }}
@@ -1844,7 +1707,7 @@ function ViewpointAnalysis({ data, topic, isActive }) {
 
 function SourcesComparisonCard({ data, onRefresh, isLoading, onShuffle, isShuffling }) {
   const [showReferences, setShowReferences] = useState(false);
-  const { Paragraph, Title, Text } = Typography; // 确保 Text 也被解构
+  const { Paragraph, Title, Text } = Typography; 
 
   const { sources = [], references = [] } = data || {};
 
@@ -1867,31 +1730,27 @@ function SourcesComparisonCard({ data, onRefresh, isLoading, onShuffle, isShuffl
             <Text strong>多史料片段对读</Text>
           </div>
           
-          {/* ▼▼▼ 核心修改区域：这里实现了两个不同的按钮 ▼▼▼ */}
           <Space>
-            {/* 按钮1: 更换一组 (轻量操作) */}
             <Button
               type="primary"
               size="small"
               ghost
-              onClick={onShuffle}      // <-- 使用新的 onShuffle 函数
-              loading={isShuffling}   // <-- 使用新的 isShuffling 加载状态
+              onClick={onShuffle}      
+              loading={isShuffling}   
             >
               更换一组
             </Button>
 
-            {/* 按钮2: 更新列表 (重量级操作) */}
             <Button
               type="primary"
               size="small"
-              onClick={onRefresh}       // <-- 保持原来的 onRefresh 函数
-              loading={isLoading}       // <-- 保持原来的 isLoading 加载状态
+              onClick={onRefresh}       
+              loading={isLoading}       
               icon={<i className="anticon"><svg viewBox="64 64 896 896" focusable="false" data-icon="sync" width="1em" height="1em" fill="currentColor" aria-hidden="true"><path d="M913.2 210.3l-50.8-31.7c-3.1-1.9-7.2-1.9-10.2 0l-50.8 31.7c-3.1 1.9-4.1 5.9-2.2 9l50.8 81.1c1.9 3.1 5.9 4.1 9 2.2l50.8-31.7c3.1-1.9 4.1-5.9 2.2-9l-50.8-81.1zM512 1024c-282.8 0-512-229.2-512-512S229.2 0 512 0s512 229.2 512 512-229.2 512-512 512zm0-896c-229.7 0-416 186.3-416 416s186.3 416 416 416 416-186.3 416-416-186.3-416-416-416z"></path><path d="M790.2 320.8c-3.1-1.9-7.2-1.9-10.2 0l-50.8 31.7c-3.1 1.9-4.1 5.9-2.2 9l50.8 81.1c1.9 3.1 5.9 4.1 9 2.2l50.8-31.7c3.1-1.9 4.1-5.9 2.2-9l-50.8-81.1zM342.1 790.2c-3.1-1.9-7.2-1.9-10.2 0l-50.8 31.7c-3.1 1.9-4.1 5.9-2.2 9l50.8 81.1c1.9 3.1 5.9 4.1 9 2.2l50.8-31.7c3.1-1.9 4.1-5.9 2.2-9l-50.8-81.1z"></path></svg></i>}
             >
               更新列表
             </Button>
             
-            {/* 查看参考文献按钮保持不变 */}
             <Button
               type="link"
               size="small"
@@ -1903,7 +1762,6 @@ function SourcesComparisonCard({ data, onRefresh, isLoading, onShuffle, isShuffl
               {showReferences ? '收起所有参考文献' : `查看所有参考文献 (${references.length})`}
             </Button>
           </Space>
-          {/* ▲▲▲ 修改结束 ▲▲▲ */}
         </div>
 
         {showReferences && (
@@ -1962,7 +1820,8 @@ function SourcesComparisonCard({ data, onRefresh, isLoading, onShuffle, isShuffl
   );
 }
 
-function EditableCard({ card, onChange, onDelete }) {
+// ▼▼▼ 11. 修改 EditableCard 签名，接收 addNodeToMap, setChatTrigger, setChatValue ▼▼▼
+function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTrigger, setChatValue }) {
   const { isListening, startListening } = useSpeechRecognition(
     (transcript) => {
       const newContent = card.content ? `${card.content}\n${transcript}` : transcript;
@@ -1971,6 +1830,104 @@ function EditableCard({ card, onChange, onDelete }) {
     }
   );
 
+  const [hints, setHints] = useState([]);
+  const [isHintLoading, setIsHintLoading] = useState(false);
+  const hintsFetched = useRef(false); 
+  const [showHints, setShowHints] = useState(false);
+  
+  // ▼▼▼ 12. 为 Input 和 TextArea 添加状态和处理函数 ▼▼▼
+  const [selectedText, setSelectedText] = useState('');
+
+  const handleMenuOpen = (isOpen) => {
+    if (isOpen) {
+      // 从全局获取高亮的文本
+      const text = window.getSelection().toString().trim();
+      setSelectedText(text);
+    }
+  };
+
+  // 菜单项 (用于 Input 和 TextArea)
+  const cardMenuItems = [
+    {
+      key: 'add-to-map',
+      label: '添加到论证图谱',
+      onClick: () => {
+        if (selectedText) {
+          addNodeToMap(selectedText);
+          message.success(`“${selectedText.substring(0, 10)}...”已添加到图谱`);
+        } else {
+          message.warning('没有选中文本');
+        }
+      },
+    },
+    {
+      key: 'ask-ai',
+      label: '问问AI这段内容...',
+      onClick: () => {
+        if (selectedText) {
+          setChatValue(`针对“${selectedText}”我想问：`);
+          setChatTrigger('针对选中内容提问'); // 触发 CoreExplorer 中的聊天框
+        } else {
+          message.warning('没有选中文本');
+        }
+      }
+    }
+  ];
+
+  // 菜单项 (用于 Hint Tags)
+  const hintMenuItems = (hintText) => [
+    {
+      key: 'add-to-map',
+      label: '添加到论证图谱',
+      onClick: () => {
+        addNodeToMap(hintText);
+        message.success(`“${hintText.substring(0, 10)}...”已添加到图谱`);
+      },
+    },
+    {
+      key: 'ask-ai',
+      label: '问问AI这段内容...',
+      onClick: () => {
+        setChatValue(`针对“${hintText}”我想问：`);
+        setChatTrigger('针对选中内容提问'); // 触发 CoreExplorer 中的聊天框
+      }
+    }
+  ];
+  // ▲▲▲ 新增菜单逻辑结束 ▲▲▲
+
+
+  const fetchHints = async () => {
+    if (isHintLoading) return; 
+
+    setIsHintLoading(true);
+    try {
+      const response = await getAIHints(topic, card.title);
+      const fetchedHints = response.data.hints || [];
+      setHints(fetchedHints);
+      hintsFetched.current = true; 
+    } catch (error) {
+      console.error("Failed to fetch hints:", error);
+      setHints(["获取提示失败"]);
+    } finally {
+      setIsHintLoading(false);
+    }
+  };
+
+  const handleHintButtonClick = () => {
+    const nextShowState = !showHints;
+    setShowHints(nextShowState); 
+
+    if (nextShowState && !hintsFetched.current) {
+      fetchHints();
+    }
+  };
+  
+  const handleRefreshHints = (e) => {
+    e.stopPropagation(); 
+    fetchHints(); 
+  };
+
+
   return (
     <Card
       size="small"
@@ -1978,13 +1935,18 @@ function EditableCard({ card, onChange, onDelete }) {
       styles={{ body: { padding: '12px' } }}
     >
       <Space direction="vertical" style={{ width: '100%' }}>
+        
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Input
-            variant="borderless"
-            value={card.title}
-            onChange={(e) => onChange(card.id, 'title', e.target.value)}
-            style={{ fontWeight: 'bold', fontSize: '16px', padding: 0 }}
-          />
+          {/* ▼▼▼ 13. 包裹卡片标题 Input ▼▼▼ */}
+          <Dropdown menu={{ items: cardMenuItems }} trigger={['contextMenu']} onOpenChange={handleMenuOpen}>
+            <Input
+              variant="borderless"
+              value={card.title}
+              onChange={(e) => onChange(card.id, 'title', e.target.value)}
+              style={{ fontWeight: 'bold', fontSize: '16px', padding: 0, cursor: 'text' }}
+            />
+          </Dropdown>
+          {/* ▲▲▲ 包裹结束 ▲▲▲ */}
           <Button
             type="text"
             danger
@@ -1993,51 +1955,110 @@ function EditableCard({ card, onChange, onDelete }) {
             onClick={() => onDelete(card.id)}
           />
         </div>
-        <div style={{ position: 'relative', width: '100%' }}>
-          <TextArea
-            variant="filled"
-            rows={3}
-            value={card.content}
-            onChange={(e) => onChange(card.id, 'content', e.target.value)}
-            placeholder={card.placeholder || '请输入内容...'}
-          />
-          <Button
-            type="text"
-            icon={<AudioOutlined />}
-            onClick={startListening}
-            loading={isListening}
-            style={{
-              position: 'absolute',
-              right: 8,
-              bottom: 8,
-              zIndex: 10,
-              color: isListening ? '#1677ff' : 'rgba(0, 0, 0, 0.45)',
-            }}
-            title="点击开始语音输入"
-          />
+        
+        {/* ▼▼▼ 14. 包裹 TextArea 及其容器 ▼▼▼ */}
+        <Dropdown menu={{ items: cardMenuItems }} trigger={['contextMenu']} onOpenChange={handleMenuOpen}>
+          <div style={{ position: 'relative', width: '100%' }}>
+            <TextArea
+              variant="filled"
+              rows={3}
+              value={card.content}
+              onChange={(e) => onChange(card.id, 'content', e.target.value)}
+              placeholder={card.placeholder || '请输入内容...'}
+              style={{ cursor: 'text' }}
+            />
+            <Button
+              type="text"
+              icon={<AudioOutlined />}
+              onClick={startListening}
+              loading={isListening}
+              style={{
+                position: 'absolute',
+                right: 8,
+                bottom: 8,
+                zIndex: 10,
+                color: isListening ? '#1677ff' : 'rgba(0, 0, 0, 0.45)',
+              }}
+              title="点击开始语音输入"
+            />
+          </div>
+        </Dropdown>
+        {/* ▲▲▲ 包裹结束 ▲▲▲ */}
+
+
+        <div style={{ width: '100%', marginTop: '4px', textAlign: 'left' }}>
+          
+          <Space> 
+            <Button
+              type="link"
+              size="small"
+              icon={<BulbOutlined />}
+              onClick={handleHintButtonClick}
+              style={{ paddingLeft: 0, color: 'rgba(0, 0, 0, 0.65)' }}
+              loading={isHintLoading && !hintsFetched.current} 
+            >
+              {showHints ? '隐藏提示' : '思考提示'}
+            </Button>
+            
+            {showHints && (
+              <Button
+                type="text"
+                size="small"
+                icon={<SyncOutlined />}
+                onClick={handleRefreshHints}
+                loading={isHintLoading && hintsFetched.current} 
+                style={{ color: 'rgba(0, 0, 0, 0.45)', fontSize: '12px', marginLeft: '-8px' }}
+                title="刷新提示"
+              />
+            )}
+          </Space>
+
+          {showHints && (
+            <div style={{ marginTop: '8px' }}>
+              {isHintLoading ? (
+                <div style={{ padding: '8px 0' }}>
+                  <Spin size="small" />
+                </div>
+              ) : (
+                <Space wrap>
+                  {/* ▼▼▼ 15. 包裹 Hint Tags ▼▼▼ */}
+                  {hints.map((hint, index) => (
+                    <Dropdown 
+                      menu={{ items: hintMenuItems(hint) }} // 使用特定于 hint 的菜单
+                      trigger={['contextMenu']} 
+                      key={index}
+                    >
+                      <Tag color="blue" style={{ cursor: 'pointer' }}>
+                        {hint}
+                      </Tag>
+                    </Dropdown>
+                  ))}
+                  {/* ▲▲▲ 包裹结束 ▲▲▲ */}
+                </Space>
+              )}
+            </div>
+          )}
         </div>
       </Space>
     </Card>
   );
 }
 
+// 16. 修改 HistoricalCriticalThinkingSection 签名，接收并传递 addNodeToMap 和 setChatValue
 function HistoricalCriticalThinkingSection({ 
   questProgress, 
   onCompleteAllTasks,
   cards,
   setCards,
   topic,
+  initialCards,
+  setChatTrigger, 
+  addNodeToMap, 
+  setChatValue, 
+  setNodes, // <-- 【新增】接收 setNodes
+  setEdges, // <-- 【新增】接收 setEdges
 }) {
   const { message } = AntdApp.useApp();
-
-  const initialCards = useMemo(() => [
-    { id: 1, title: '我的历史视角', content: '', placeholder: '基于前面的学习，请简述您对该历史事件形成的整体看法和判断。' },
-    { id: 2, title: '事件的直接原因', content: '', placeholder: '分析并列出导致该事件发生的直接因素或导火索是什么？' },
-    { id: 3, title: '事件的深层原因', content: '', placeholder: '探讨事件背后更深层次的政治、经济、社会或文化原因。' },
-    { id: 4, title: '触发事件', content: '', placeholder: '是哪个具体的事件或行动最终引爆了整个事态？' },
-    { id: 5, title: '历史影响', content: '', placeholder: '该事件对当时及后来的历史发展产生了哪些短期和长期的影响？' },
-    { id: 6, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天有什么启示？' },
-  ], []);
 
   useEffect(() => {
     setCards(initialCards.map(c => ({ ...c, content: '' })));
@@ -2077,7 +2098,7 @@ function HistoricalCriticalThinkingSection({
     ).join('\n\n---\n\n');
 
     const fullContent = `
-因果链分析
+历史批判思维训练
 ==================
 
 ${content.trim()}
@@ -2086,7 +2107,7 @@ ${content.trim()}
     const blob = new Blob([fullContent.trim()], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${topic}-因果链分析.txt`;
+    link.download = `${topic}-历史批判思维训练.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2094,7 +2115,24 @@ ${content.trim()}
   };
 
   const handleSave = () => {
-    message.success('内容已保存！');
+    
+    // ▼▼▼ 【核心修改】在这里执行清除操作 ▼▼▼
+    setNodes(currentNodes => 
+        currentNodes.filter(node => 
+            // 保留所有“非”卡片节点（即保留核心节点和手动添加的节点）
+            !node.id.startsWith('card-node-')
+        )
+    );
+    setEdges(currentEdges =>
+        currentEdges.filter(edge =>
+            // 保留所有“非”卡片连线
+            !edge.id.startsWith('edge-to-card-node-')
+        )
+    );
+    // ▲▲▲ 修改结束 ▲▲▲
+
+    message.success('内容已保存，旧图谱卡片已清除！'); // 修改提示信息
+    
     if (cards.some(card => card.content.trim())) {
       onCompleteAllTasks && onCompleteAllTasks();
     }
@@ -2139,9 +2177,22 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
   return (
     <Card size="small" variant="bordered"  style={{ borderStyle: 'dashed' }}>
       <Space direction="vertical" style={{ width: '100%', textAlign: 'left' }} size="middle">
-        <Paragraph type="secondary">
-          请运用批判性思维，形成您对历史事件的独特视角和判断。通过深度思考，培养历史批判思维能力，最终完成一份具有独立思考的历史调查报告。您可以自由编辑、增加或删除下方的思考卡片。
-        </Paragraph>
+        
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Paragraph type="secondary" style={{ flex: 1, margin: 0 }}>
+            请运用批判性思维，形成您对历史事件的独特视角和判断。通过深度思考，培养历史批判思维能力，最终完成一份具有独立思考的历史调查报告。您可以自由编辑、增加或删除下方的思考卡片。
+          </Paragraph>
+          <Button
+            type="primary"
+            ghost
+            size="small"
+            icon={<MessageOutlined />}
+            onClick={() => setChatTrigger('任务四：历史批判思维训练')} 
+            style={{ marginLeft: 16 }}
+          >
+            AI引导
+          </Button>
+        </div>
 
         {cards.map(card => (
           <EditableCard
@@ -2149,6 +2200,11 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
             card={card}
             onChange={handleCardChange}
             onDelete={handleDeleteCard}
+            topic={topic}
+            // ▼▼▼ 17. 传递 props 到 EditableCard ▼▼▼
+            addNodeToMap={addNodeToMap}
+            setChatTrigger={setChatTrigger}
+            setChatValue={setChatValue}
           />
         ))}
 
@@ -2188,6 +2244,7 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
   );
 }
 
+// 18. 修改 AIChatDock 签名，接收 chatValue 和 setChatValue
 function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask,msgs, setMsgs }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
@@ -2256,7 +2313,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         const userMessage = { role: 'user', text: chatValue };
         const newMsgs = [...msgs, userMessage, { role: 'ai', text: '' }];
         setMsgs(newMsgs);
-        setChatValue('');
+        setChatValue(''); // 清空提升后的状态
         setLoading(true);
 
         const chatRequest = {
@@ -2389,8 +2446,8 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                 <Space.Compact style={{ width: "100%", marginTop: 8 }}>
                     <Input.TextArea
                         placeholder={isListening ? "正在聆听..." : (loading ? "AI正在思考..." : "输入你的想法/问题，Enter 发送 (Shift+Enter换行)")}
-                        value={chatValue}
-                        onChange={(e) => setChatValue(e.target.value)}
+                        value={chatValue} // 19. 使用提升后的 chatValue
+                        onChange={(e) => setChatValue(e.target.value)} // 20. 使用提升后的 setChatValue
                         onPressEnter={(e) => {
                             if (!e.shiftKey && !loading) {
                               e.preventDefault();
@@ -2438,6 +2495,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
      );
  }
 
+// 21. 修改 NotesWorkspace 签名，接收并传递 addNodeToMap 和 setChatValue
 function NotesWorkspace({
   topic,
   nodes,
@@ -2445,21 +2503,17 @@ function NotesWorkspace({
   onNodesChange,
   onEdgesChange,
   onConnect,
-  addBlankNode,
+  addNodeToMap, // 接收
   setNodes,
   setEdges,
   questProgress,
-  onCompleteAllTasks
+  onCompleteAllTasks,
+  cards, 
+  setCards, 
+  initialCards, 
+  setChatTrigger,
+  setChatValue, // 接收
 }) {
-  const initialCards = useMemo(() => [
-    { id: 1, title: '我的历史视角', content: '', placeholder: '基于前面的学习，请简述您对该历史事件形成的整体看法和判断。' },
-    { id: 2, title: '事件的直接原因', content: '', placeholder: '分析并列出导致该事件发生的直接因素或导火索是什么？' },
-    { id: 3, title: '事件的深层原因', content: '', placeholder: '探讨事件背后更深层次的政治、经济、社会或文化原因。' },
-    { id: 4, title: '触发事件', content: '', placeholder: '是哪个具体的事件或行动最终引爆了整个事态？' },
-    { id: 5, title: '历史影响', content: '', placeholder: '该事件对当时及后来的历史发展产生了哪些短期和长期的影响？' },
-    { id: 6, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天有什么启示？' },
-  ], []);
-  const [cards, setCards] = useState(initialCards);
 
   const items = [
     {
@@ -2476,6 +2530,12 @@ function NotesWorkspace({
         cards={cards}
         setCards={setCards}
         topic={topic}
+        initialCards={initialCards} 
+        setChatTrigger={setChatTrigger}
+        addNodeToMap={addNodeToMap} // 传递
+        setChatValue={setChatValue} // 传递
+        setNodes={setNodes} // <-- 【新增】把 setNodes 传进去
+        setEdges={setEdges} // <-- 【新增】把 setEdges 传进去
       />,
     },
     {
@@ -2494,10 +2554,10 @@ function NotesWorkspace({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            addBlankNode={addBlankNode}
             setNodes={setNodes}
             setEdges={setEdges}
             cards={cards} 
+            topic={topic}
           />
         </ReactFlowProvider>
       ),
@@ -2510,7 +2570,7 @@ function NotesWorkspace({
         笔记工作区
       </Title>
       <Text type="secondary">支持历史批判思维训练、论证图谱</Text>
-      <Tabs defaultActiveKey="causality" items={items} />
+      <Tabs defaultActiveKey="causality" items={items} forceRender />
     </Space>
   );
 }

@@ -9,7 +9,9 @@ from app.schemas.main_schemas import (
     SourceMaterial,
     DiscussionDetailRequest,
     RefreshDebatesRequest,
-    DebatesResponse
+    DebatesResponse,
+    TimelineTextRequest,
+    TimelineEvent
 )
 from pydantic import BaseModel # <-- 3. 导入 BaseModel
 from typing import List         # <-- 4. 导入 List
@@ -60,8 +62,7 @@ def get_discussion_details_endpoint(request: DiscussionDetailRequest):
     """
     data = wikipedia_service.get_discussion_details(
         request.topic, 
-        request.debate_item,
-        request.current_factions  # <-- 将前端传来的阵营列表传递下去
+        request.debate_item
     )
     return data
 
@@ -105,3 +106,14 @@ def get_wiki_preview(topic_name: str):
     【新路由】用于获取维基百科悬浮窗预览摘要。
     """
     return wikipedia_service.get_wiki_preview_summary(topic_name)
+
+@router.post("/timeline/{topic_name}/create-from-text", response_model=TimelineEvent)
+def create_timeline_event_from_text(topic_name: str, request: TimelineTextRequest):
+    """
+    接收一个文本片段和主题，并使用LLM生成一个结构化的时间线事件。
+    """
+    result = wikipedia_service.create_timeline_event_from_selection(
+        topic_name,
+        request.text
+    )
+    return result

@@ -32,21 +32,11 @@ class WikiTopicResponse(BaseModel):
     # 新增时间线字段
     timeline: List[TimelineEvent]
 
-# --- 观点辨析相关 (核心修改) ---
-class Role(BaseModel):
-    type: str  # 例如："正面作用" 或 "负面作用"
-    description: str
-
-class FactionRole(BaseModel):
-    faction_name: str
-    roles: List[Role]
-
 class Viewpoint(BaseModel):
     side: str  # 如 "A（英方观点）" 或 "B（清方观点）"
     text: str  # 观点描述
 
 class ViewpointAnalysisResponse(BaseModel):
-    faction_roles: List[FactionRole]  # <-- 新增字段：阵营作用分析
     viewpoints: List[Viewpoint]  # 对立观点列表
     debates: List[str]  # 维基讨论页要点列表
     full_discussion: str  # 完整讨论页内容
@@ -81,6 +71,15 @@ class SourceContent(BaseModel):
 class ComparePairRequest(BaseModel):
     topic: str
     references: List[SourceContent]
+# ▲▲▲ 新增 Class 结束 ▲▲▲
+
+# ▼▼▼ 在此处添加下面这两个新的 Class ▼▼▼
+class HintRequest(BaseModel):
+    topic: str
+    card_title: str
+
+class HintResponse(BaseModel):
+    hints: List[str]
 # ▲▲▲ 新增 Class 结束 ▲▲▲
 
 
@@ -132,7 +131,6 @@ class NotesAndConnections(BaseModel):
 class DiscussionDetailRequest(BaseModel):
     topic: str
     debate_item: str
-    current_factions: List[str]
 
 class RefreshDebatesRequest(BaseModel):
     topic: str
@@ -140,3 +138,6 @@ class RefreshDebatesRequest(BaseModel):
 
 class DebatesResponse(BaseModel):
     debates: List[str]
+    
+class TimelineTextRequest(BaseModel):
+    text: str

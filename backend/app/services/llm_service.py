@@ -2,6 +2,7 @@
 
 import os
 import json
+import random
 from openai import OpenAI, APITimeoutError # 导入APITimeoutError
 from app.schemas.main_schemas import AIChatRequest
 from typing import List, Dict,AsyncGenerator, Tuple # 确保导入 List 和 Dict
@@ -17,7 +18,8 @@ client = OpenAI(
 async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator[str, None]:
     # 基础人设
     system_prompt = f"""
-你是一名专业的历史学领域的苏格ρά底式导师。你的唯一目标是引导学生进行批判性思考，绝不直接提供答案或进行总结。
+你是一名专业的历史学领域的苏格拉底式导师。你的唯一目标是引导学生进行批判性思考，绝不直接提供答案或进行总结。你的引导要有目的和条理，紧密围绕学生当前的探究阶段和所提供的学习材料，通过你的提问帮助学生深化理解。
+如果用户对你的问题回复“不知道”，你需要引导用户找到问题的答案，引导用户回到材料中寻找线索，而不是放弃思考。而且你不能越引导越偏离这个问题，几轮引导过后，如果你觉得用户已经知道了这个问题的答案，你可以直接问用户“你觉得这个问题的答案是什么？”。
 
 核心规则:
 1.  始终以启发性问题回应，而不是陈述事实或给出答案。
@@ -25,6 +27,12 @@ async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator
 3.  保持对话简短、有启发性、开放性, 避免是非题。
 4.  永远不要说"我不知道"或"我无法回答"。你的职责是基于现有信息提出引导性问题。
 5.  **重要：所有回复必须使用简体中文，不能使用繁体字。**
+
+你将运用以下历史思维理论来引导学生：
+- **来源探究 (Sourcing)**: 引导学生探究史料的作者、创作目的、背景等。
+- **情境化 (Contextualization)**: 引导学生将史料置于其特定的历史时刻中进行理解。
+- **佐证 (Corroboration)**: 引导学生将一份史料与其他来源进行比较和核对。
+- **六大历史思维概念**: 在对话中自然地融入历史之重要性、证据、延续与变迁、因果与结果、历史之视角、伦理维度等概念。
 
 当前的历史探究主题是: {request.topic}
 """
@@ -34,22 +42,34 @@ async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator
     if request.current_module == "模块一：史实认知":
         system_prompt += """
         你正处于【模块一：史实认知】。
-        你的任务是：引导用户深入阅读维基百科的完整条目，帮助他们梳理基本史实，建立初步的因果和时序概念。
-        - 针对提供的**维基百科全文**，可以提出一些开放性问题来引导用户关注文章的核心内容，例如："通读全文后，你认为这篇文章主要想阐述哪几个核心观点？" 或 "文章的结构是如何安排的？你认为作者为什么这样安排？"
-        - 引导用户关注“延续与变迁”和“因果与结果”，例如："除了众所周知直接原因，文章还提到了哪些深层次的社会或经济背景？"
+        你的任务是：引导用户建立对历史事件的基本认知，侧重于**时序思维**和**历史理解**。
+        - **情境化**: 提出问题，帮助用户理解事件发生的宏观背景。例如："在...事件发生时，当时的社会/政治/经济环境是怎样的？"
+        - **延续与变迁**: 引导用户思考事件的连续性和变化。例如："与之前相比，你认为...事件带来了哪些主要变化？哪些方面似乎没有改变？"
+        - **因果与结果**: 引导用户初步探讨事件的因果。例如："根据你阅读的材料，哪些是导致...事件发生的关键因素？它直接导致了哪些后果？"
         """
     elif request.current_module == "模块二：观点辨析":
         system_prompt += """
         你正处于【模块二：观点辨析】。
-        你的任务是：引导用户从多角度分析历史事件，识别不同立场和争议，认识历史叙述的主观性。
-        - 针对提供的对立观点(A/B方)，可以问："这两方观点的核心分歧在哪里？" 或 "你认为A方的观点可能受到了什么立场或背景的影响？"
-        - 引导用户思考“历史之视角”，例如："为什么不同的作者会对同一事件有截然不同的描述？这告诉我们关于历史叙述的什么特性？"
+        你的任务是：引导用户分析和阐释不同的历史观点，侧重于**历史视角**的理解，识别不同立场和争议，认识历史叙述的主观性。
+        - **来源探究**: 针对不同观点，引导用户思考其来源。例如："提出A观点的这些人是谁？他们的立场和动机可能是什么？"
+        - **历史视角**: 引导用户理解观点背后的多元性。例如："为什么对于同一个事件，会出现如此不同的看法？这反映了当时哪些不同群体的利益或视角？"
+        - **证据**: 引导用户思考支撑不同观点的证据。例如："支持B观点的证据有哪些？你觉得这些证据足够有说服力吗？"
         """
     elif request.current_module == "模块三：史料分析":
         system_prompt += """
         你正处于【模块三：史料分析】。
-        你的任务是：引导用户对史料进行“来源探究”、深入“佐证”和“情境化”分析，通过对比阅读来质询史料。
-        - 针对提供的多份史料片段，可以问："对比史料1和史料2，它们在描述同一件事时有何不同之处？" 或 "这两份史料的作者身份（例如官员 vs 商人）会如何影响他们的记述？"
+        你的任务是：引导用户进行批判性的史料研究，侧重于**来源探究**、**佐证**和**证据**评估。
+        - **来源探究**: 针对每一份史料，提出问题。例如："这份史料是谁写的？你觉得ta的写作目的是什么？"
+        - **佐证**: 引导用户进行交叉验证。例如："对比史料A和史料B，它们在描述...事件时有哪些相同和不同之处？出现了哪些矛盾？"
+        - **证据评估**: 引导用户评估史料的可靠性。例如："你认为哪一份史料更可信？为什么？"
+        """
+    elif request.current_module == "模块四：历史批判思维训练":
+        system_prompt += """
+        你正处于【模块四：历史批判思维训练】。
+        你的任务是：引导用户进行更高层次的反思，融合**偶然性**、**复杂性**和**伦理维度**。
+        - **偶然性与复杂性**: 引导用户思考历史的多种可能性。例如："如果...这个条件改变了，历史的走向可能会有什么不同？" "这个事件中有哪些看似矛盾但又同时存在的现象？"
+        - **历史之重要性**: 引导用户评估事件的长远影响。例如："为什么我们今天还要学习和讨论这个事件？它对后世产生了哪些深远的影响？"
+        - **伦理维度**: 引导用户进行道德和价值判断。例如："我们应该如何评价历史人物...的行为？以今天的标准和当时的标准来看，会有什么不同？"
         """
     # 新增：处理用户选中文本的场景
     elif request.current_module == "针对选中内容提问":
@@ -168,89 +188,7 @@ JSON格式:
         return {"summary": "AI在生成摘要时遇到了一个未知问题，请查看后端日志。", "timeline": []}
 # ▲▲▲ 修改结束 ▲▲▲
 
-# --- 以下所有函数均保持您提供的原样，一行未删 ---
-@functools.lru_cache(maxsize=128)
-def analyze_faction_roles(topic: str, wiki_content: str) -> dict:
-    """
-    分析历史事件中不同阵营的正面及负面作用。
-    """
-    print(f"LLM Service: 正在为 {topic} 分析各阵营作用...")
 
-    max_length = 15000
-    if len(wiki_content) > max_length:
-        wiki_content = wiki_content[:max_length] + "\n\n[内容已截断]"
-
-    system_prompt = f"""
-你是一名专业的历史研究员。你的任务是基于提供的关于"{topic}"的维基百科文章，分析其中各个关键阵营所扮演的角色。
-
-请严格遵循以下要求：
-1.  首先，识别出事件中的主要参与阵营（例如，国民党、共产党、东北军、西北军等）。
-2.  对每一个识别出的阵营，分别从"正面作用"和"负面作用"两个角度进行分析和总结。
-3.  你的分析必须完全基于提供的文章内容，不得引入外部知识或进行主观臆断。
-4.  输出必须是严格的JSON格式，结构如下，不要添加任何额外的解释或文字。
-5.  **重要：所有输出内容必须使用简体中文，不能使用繁体字。**
-
-{{
-  "faction_roles": [
-    {{
-      "faction_name": "（阵营一的名称，必须使用简体中文）",
-      "roles": [
-        {{ "type": "正面作用", "description": "（对该阵营正面作用的客观总结，必须使用简体中文）" }},
-        {{ "type": "负面作用", "description": "（对该阵营负面作用的客观总结，必须使用简体中文）" }}
-      ]
-    }},
-    {{
-      "faction_name": "（阵营二的名称，必须使用简体中文）",
-      "roles": [
-        {{ "type": "正面作用", "description": "（对该阵营正面作用的客观总结，必须使用简体中文）" }},
-        {{ "type": "负面作用", "description": "（对该阵营负面作用的客观总结，必须使用简体中文）" }}
-      ]
-    }}
-  ]
-}}
-"""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"请根据以下关于“{topic}”的维基百科全文，为我分析各方阵营的作用：\n\n{wiki_content}"}
-    ]
-
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=messages,
-            max_tokens=2500,
-            temperature=0.2,
-            response_format={"type": "json_object"}
-        )
-
-        content = response.choices[0].message.content
-        data = json.loads(content)
-        print(f"LLM Service: 成功为“{topic}”分析了阵营作用。")
-        return data
-
-    except APITimeoutError:
-        print(f"LLM为“{topic}”分析阵营作用时超时。")
-        return {
-            "faction_roles": [
-                {
-                    "faction_name": "AI分析超时",
-                    "roles": [{"type": "错误", "description": "生成内容超时，请检查网络或稍后再试。"}]
-                }
-            ]
-        }
-    except Exception as e:
-        print(f"LLM分析阵营作用时发生未知错误: {e}")
-        return {
-            "faction_roles": [
-                {
-                    "faction_name": "AI分析错误",
-                    "roles": [{"type": "错误", "description": "生成内容时遇到问题，请查看后端日志。"}]
-                }
-            ]
-        }
-
-@functools.lru_cache(maxsize=128)
 @functools.lru_cache(maxsize=128)
 def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: str, exclude_debates: List[str] = None) -> dict:
     """
@@ -362,13 +300,12 @@ def analyze_viewpoints_and_debates(topic: str, main_content: str, talk_content: 
         }
 
 @functools.lru_cache(maxsize=128)
-def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str, talk_content: str, faction_names: List[str]) -> dict:
+def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str, talk_content: str) -> dict:
     """
     分析特定讨论要点的详细内容和多方观点
     严格基于维基百科讨论页内容进行分析
     """
     
-    print(f"LLM Service: 分析'{topic}'中'{debate_item}'的详细讨论内容，并关联阵营: {faction_names}...")
     
     # 限制讨论页内容长度，但确保有足够内容进行分析
     max_length = 15000
@@ -393,9 +330,7 @@ def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str,
 4. 所有观点和证据都必须直接来源于讨论页内容
 5. **重要：所有输出内容必须使用简体中文，不能使用繁体字**
 6. **【新增核心任务】** 识别并返回你用于分析的所有相关讨论章节的**确切标题**
-7. **【新增核心任务】** 必须从下面提供的阵营列表中，识别出哪些阵营与当前讨论的要点 "{debate_item}" **直接相关**
 
-【已知阵营列表】: {faction_names}
 
 你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字：
 {{
@@ -407,10 +342,6 @@ def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str,
   "source_sections": [
     "（你找到的第一个相关章节的标题，逐字复制）",
     "（你找到的第二个相关章节的标题，逐字复制）"
-  ],
-  "involved_factions": [
-    "（从【已知阵营列表】中选出的、与本次讨论相关的阵营名称1）",
-    "（从【已知阵营列表】中选出的、与本次讨论相关的阵营名称2）"
   ]
 }}
 
@@ -434,10 +365,6 @@ def analyze_detailed_discussion(topic: str, debate_item: str, main_content: str,
     * 如果讨论页中没有与 "{debate_item}" 直接相关的内容，请返回空的 `detailed_viewpoints` 和 `source_sections` 数组，以及相应的提示信息。
     * **所有输出内容必须使用简体中文，不能使用繁体字。**
 
-6.  **`involved_factions` 字段规则**:
-    * 此数组的内容**必须**是【已知阵营列表】的子集。
-    * 如果没有任何已知阵营与讨论相关，请返回一个空数组 `[]`。
-    * **绝对禁止**编造任何不在列表中的阵营名称。
 """
     
     messages = [
@@ -636,3 +563,100 @@ def summarize_reference_content(content: str) -> str:
         print(f"为参考文献生成摘要时出错: {e}")
         # 如果AI摘要失败，返回原文的前100个字符作为备用
         return content[:100] + "..."
+ 
+def summarize_event_from_text_only(text_snippet: str) -> str:
+    """
+    分析文本片段，*只*提取事件描述，不处理时间。
+    这是为了配合 RegEx 优先的策略。
+    """
+    print(f"LLM Service: 从片段中*仅*提取事件描述: '{text_snippet[:50]}...'")
+    
+    system_prompt = f"""
+你是一名专业的历史事件提取器。你的任务是从提供的文本片段中，用一句话简洁、准确地概括该时间点发生的关键事件。
+
+**重要规则：**
+1.  你的回答**必须**只包含事件描述的文本，不要任何JSON或前缀。
+2.  **绝对不要**提及或提取时间。
+3.  所有输出内容必须使用简体中文。
+"""
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"请从以下文本片段中为我概括事件：\n\n\"{text_snippet}\""}
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        event_desc = response.choices[0].message.content.strip()
+        # 移除AI可能添加的引号
+        return event_desc.strip('"').strip('“').strip('”')
+    except Exception as e:
+        print(f"LLM从文本片段仅概括事件时发生错误: {e}") 
+        return "AI处理时遇到问题"
+    
+def generate_thinking_hints(topic: str, card_title: str) -> dict:
+    """
+    针对一个历史主题和一个批判性思维卡片标题，生成3个启发性的思考方向。
+    """
+    print(f"LLM Service: Generating thinking hints for topic='{topic}', card_title='{card_title}'")
+    
+    system_prompt = f"""
+你是一名专业的历史学导师。你的任务是帮助学生进行批判性思维训练。
+学生正在研究的历史主题是："{topic}"。
+他们正在尝试回答一个具体的问题卡片，标题为："{card_title}"。
+
+请你提供3个简短的“关键词提示”（Keywords），引导他们从不同角度深入思考。
+**每个提示词最好能很具体，紧扣问题卡片的主题，而不要太宽泛笼统。**
+**每个提示词最好在2-5个字，例如：“经济角度”、“社会影响”、“前后对比”等。**
+**重要：所有输出内容必须使用简体中文，不能使用繁体字。**
+
+你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字。
+
+{{
+  "hints": [
+    "（关键词提示1）",
+    "（关键词提示2）",
+    "（关键词提示3）"
+  ]
+}}
+"""
+    
+    # ▼▼▼ 2. 在这里添加核心修改 ▼▼▼
+    
+    # (a) 生成一个随机数，作为 "缓存破坏者"
+    cache_buster = random.randint(1000, 9999) 
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        # (b) 将随机数附加到 user 的 content 末尾
+        {"role": "user", "content": f"请为我提供关于“{topic}”主题下“{card_title}”这个问题的3个思考方向。 (Ref: {cache_buster})"}
+    ]
+    # ▲▲▲ 修改结束 ▲▲▲
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.99, # 您的 0.99 设置保持不变
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        print(f"LLM Service: Successfully generated hints for '{topic}' - '{card_title}'.")
+        return data
+
+    except APITimeoutError:
+        print(f"LLM为“{topic}” - “{card_title}”生成提示时超时。")
+        return {"hints": ["AI生成提示超时，请检查网络或稍后再试。"]}
+    except Exception as e:
+        print(f"LLM生成提示时发生未知错误: {e}") 
+        return {"hints": [f"AI生成提示时遇到问题: {e}"]}
+    
