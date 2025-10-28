@@ -42,11 +42,10 @@ export const postComparePair = (topic, references) => {
 export const getWikiDiscussionHtmlContent = (topic) => apiClient.get(`/wiki/discussion-html-content/${topic}`);
 
 
-export const getDiscussionDetails = (topic, debateItem, currentFactions) => {
+export const getDiscussionDetails = (topic, debateItem) => {
   return apiClient.post('/discussion-details', {
     topic: topic,
-    debate_item: debateItem,
-    current_factions: currentFactions
+    debate_item: debateItem
   });
 };
 
@@ -95,6 +94,18 @@ export const getWikiHtmlContent = (topic) => {
 
 export const getWikiPreview = (topic) => {
   return apiClient.get(`/wiki/preview/${topic}`); 
+};
+
+export const postCreateTimelineEvent = (topic, text) => {
+  // 注意URL的变化，以匹配后端的修改
+  return apiClient.post(`/timeline/${topic}/create-from-text`, { text });
+};
+
+export const getAIHints = (topic, cardTitle) => {
+  return apiClient.post('/hints', { 
+    topic: topic, 
+    card_title: cardTitle 
+  });
 };
 
 

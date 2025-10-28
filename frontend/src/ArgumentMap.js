@@ -1,6 +1,6 @@
-// ArgumentMap.js
+// ArgumentMap.js (完整修改版)
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react'; 
 import ReactFlow, {
   Controls,
   Background,
@@ -15,24 +15,55 @@ import 'reactflow/dist/style.css';
 
 const nodeTypes = { textUpdater: TextUpdaterNode };
 
-// 修正1：接收 cards prop，弃用 noteContent, isGeneratingMap, setIsGeneratingMap
+const defaultNodeWidth = 150;
+const defaultNodeHeight = 50;
+const centralNodeId = 'central-topic'; // Define central node ID as a constant
+
 export default function ArgumentMap({
   nodes,
   edges,
   onNodesChange,
   onEdgesChange,
   onConnect,
-  addBlankNode,
+  // addBlankNode, // <-- 1. 已从 props 中移除
   setNodes,
   setEdges,
-  cards, // <-- 接收正确的 cards 数据
+  cards,
+  topic,
 }) {
-  const { getNodes, getEdges, setCenter } = useReactFlow();
+  // ▼▼▼ 2. 从 useReactFlow 中获取 project ▼▼▼
+  const {setCenter, fitView, project } = useReactFlow(); 
+  const reactFlowWrapper = useRef(null); // <-- 3. 为 wrapper 添加 ref
+
+  const cardsRef = useRef(cards);
+  const nodesRef = useRef(nodes);
+  const topicRef = useRef(topic);
+
+  // 当 props 发生变化时，立刻更新这些“容器”的内容
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  
+  useEffect(() => {
+    topicRef.current = topic;
+  }, [topic]);
 
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [edgeLabel, setEdgeLabel] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false); // 在组件内部管理生成状态
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    if (nodes.length > 0) {
+      if (!isGenerating) {
+          // (removed auto-fitview)
+      }
+    }
+  }, [nodes, fitView, isGenerating]);
 
   const handleEdgeDoubleClick = useCallback((event, edge) => {
     setSelectedEdge(edge);
@@ -65,80 +96,222 @@ export default function ArgumentMap({
   };
 
   const onDelete = useCallback(() => {
-    const selectedNodes = getNodes().filter((node) => node.selected);
-    const selectedEdges = getEdges().filter((edge) => edge.selected);
-    
+    const selectedNodes = nodes.filter((node) => node.selected);
+    const selectedEdges = edges.filter((edge) => edge.selected);
+
     setNodes((currentNodes) => currentNodes.filter(node => !selectedNodes.find(sn => sn.id === node.id)));
     setEdges((currentEdges) => currentEdges.filter(edge => !selectedEdges.find(se => se.id === edge.id)));
 
-  }, [getNodes, getEdges, setNodes, setEdges]);
+  }, [nodes, edges, setNodes, setEdges]);
 
-  // 修正2：重写图谱生成函数，使其基于 cards 数据工作
-  const generateMapFromCards = useCallback(() => {
-    // 检查是否有卡片，并且至少有一张卡片填写了内容
-    const hasContent = cards && cards.some(card => card.content && card.content.trim() !== '');
-
-    if (!hasContent) {
-      message.warning('请先在“历史批判思维训练”中填写至少一张卡片的内容。');
+  // ▼▼▼ 4. 这是新的“智能” addBlankNode 函数 ▼▼▼
+  const addBlankNode = useCallback(() => {
+    if (!reactFlowWrapper.current) {
+      // Fallback, just in case ref is not ready
+      const fallbackPos = { x: 300, y: 200 };
+      const newNode = {
+        id: `node-${Date.now()}`,
+        type: 'textUpdater',
+        position: fallbackPos,
+        data: { label: '双击编辑' },
+      };
+      setNodes((nds) => [...nds, newNode]);
       return;
     }
+
+    // 获取 React Flow 容器的宽度和高度
+    const { width, height } = reactFlowWrapper.current.getBoundingClientRect();
     
+    // 计算屏幕的中心点（像素坐标）
+    const centerOfScreen = {
+      x: width / 2,
+      y: height / 2,
+    };
+    
+    // 使用 project 函数将“屏幕中心点”转换为“图谱坐标系”
+    const position = project(centerOfScreen);
+
+    const newNode = {
+      id: `node-${Date.now()}`,
+      type: 'textUpdater',
+      position: position, // 使用计算出的中心位置
+      data: { label: '双击编辑' },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  }, [project, setNodes]); // 依赖 project 和 setNodes
+  // ▲▲▲ 新函数结束 ▲▲▲
+
+  const generateMapFromCards = useCallback(() => {
+    // (你现有的“生成图谱”函数，包含紧凑布局，无需改动)
+    
+    const hasContent = cardsRef.current && cardsRef.current.some(card => card.content && card.content.trim() !== '');
+
+    if (!hasContent) {
+      const existingCardNodes = nodesRef.current.some(n => n.id.startsWith('card-node-'));
+      if (existingCardNodes) {
+        // message.info('卡片内容均已清空，正在更新图谱...'); // 已被 handleSave 覆盖
+      } else {
+        message.warning('请先在“历史批判性思维训练”中填写至少一张卡片的内容。');
+        return;
+      }
+    }
+
     setIsGenerating(true);
 
-    // 模拟AI分析和布局的延迟
     setTimeout(() => {
-      // 1. 创建一个中心主题节点
-      const centralNode = {
-        id: 'central-topic',
-        type: 'default', // 使用默认样式，使其突出
-        data: { label: '核心论点：我的历史视角' },
-        position: { x: 300, y: 200 },
-        style: { backgroundColor: '#667eea', color: 'white', fontWeight: 'bold' },
-      };
+      const currentNodes = nodesRef.current; 
+      const existingNodeIds = new Set(currentNodes.map(n => n.id));
 
-      // 2. 过滤掉没有内容的卡片，并为有内容的卡片创建节点
-      const cardNodes = cards
-        .filter(card => card.content && card.content.trim() !== '')
-        .map((card, index) => {
-          // 使用圆形布局算法来定位节点
-          const angle = (index / (cards.length - 1)) * 2 * Math.PI;
-          const x = centralNode.position.x + 350 * Math.cos(angle);
-          const y = centralNode.position.y + 250 * Math.sin(angle);
+      const contentCards = cardsRef.current.filter(card => card.content && card.content.trim() !== '');
+      const validCardNodeIds = new Set(contentCards.map(card => `card-node-${card.id}`));
+      const validEdgeIds = new Set(contentCards.map(card => `edge-to-card-node-${card.id}`));
 
-          return {
-            id: `card-node-${card.id}`,
+      // 【布局核心修改 1/3】
+      let newCentralPosition = { x: 300, y: 200 }; // 默认位置
+      if (existingNodeIds.has(centralNodeId)) {
+         const existingCentral = currentNodes.find(n => n.id === centralNodeId);
+         if (existingCentral) {
+             newCentralPosition = existingCentral.position; // 优先使用现有位置
+         }
+      }
+
+      const centralNodeData = { label: topicRef.current || '核心论点' };
+      const centralNodeStyle = { backgroundColor: '#667eea', color: 'white', fontWeight: 'bold' };
+
+      const nodesToUpdate = []; 
+      const nodesToAdd = [];    
+      const edgesToAdd = [];    
+ 
+      const numCards = contentCards.length;
+      
+      // 【布局核心修改 2/3】
+      const radiusX = 250; 
+      const radiusY = 180; 
+
+      contentCards.forEach((card, index) => {
+        const nodeId = `card-node-${card.id}`;
+        const edgeId = `edge-to-${nodeId}`;
+        
+        const newNodeLabel = `${card.title} ${card.content.trim()}`;
+
+        // 因为我们采用了“先删除再生成”的策略，所以 existingNodeIds.has(nodeId) 永远是 false
+        if (existingNodeIds.has(nodeId)) {
+          // 这个分支理论上不会进入
+          const existingNode = currentNodes.find(n => n.id === nodeId);
+          if (existingNode) {
+            if (existingNode.data.label !== newNodeLabel) {
+                nodesToUpdate.push({ 
+                  ...existingNode, 
+                  data: { label: newNodeLabel } 
+                });
+            }
+          }
+        } else {
+          // 【布局核心修改 3/3】
+          const angle = (numCards > 0) ? (index / numCards) * 2 * Math.PI : 0;
+          
+          const x = newCentralPosition.x + radiusX * Math.cos(angle);
+          const y = newCentralPosition.y + radiusY * Math.sin(angle);
+          
+          nodesToAdd.push({
+            id: nodeId,
             type: 'textUpdater',
             position: { x, y },
-            data: { label: `${card.title}\n\n${card.content}` },
-          };
+            data: { label: newNodeLabel },
+          });
+           edgesToAdd.push({
+             id: edgeId,
+             source: nodeId,
+             target: centralNodeId,
+             type: 'smoothstep',
+             animated: false,
+           });
+        }
+      });
+      
+      // --- 核心修改：更新 Nodes 状态 ---
+      setNodes(prevNodes => {
+        let baseNodes = prevNodes;
+        
+        baseNodes = baseNodes.filter(node => {
+            const isCardNode = node.id.startsWith('card-node-');
+            if (isCardNode) {
+                return validCardNodeIds.has(node.id);
+            }
+            return true;
         });
-      
-      // 3. 创建从每个卡片节点到中心节点的连线
-      const cardEdges = cardNodes.map(node => ({
-        id: `edge-to-${node.id}`,
-        source: node.id,
-        target: centralNode.id,
-        type: 'smoothstep', // 使用平滑的曲线
-        animated: false,
-      }));
 
-      // 4. 组合所有节点和连线，并更新状态
-      setNodes([centralNode, ...cardNodes]);
-      setEdges(cardEdges);
-      
-      message.success('已根据您的思考生成论证图谱！');
+        const existingCentral = baseNodes.find(n => n.id === centralNodeId);
+        
+        if (!existingCentral) {
+            if (contentCards.length > 0) { // 只有在有卡片时才创建中心节点
+              baseNodes = [
+                  ...baseNodes,
+                  { id: centralNodeId, type: 'default', data: centralNodeData, position: newCentralPosition, style: centralNodeStyle }
+              ];
+            }
+        } else {
+            if (contentCards.length === 0) { // 如果卡片都删了，也删除中心节点
+                baseNodes = baseNodes.filter(n => n.id !== centralNodeId);
+            } else {
+                const centralUpdateNeeded = existingCentral.position.x !== newCentralPosition.x ||
+                                            existingCentral.position.y !== newCentralPosition.y ||
+                                            existingCentral.data.label !== centralNodeData.label;
+                if (centralUpdateNeeded) {
+                    nodesToUpdate.push({
+                        ...existingCentral,
+                        position: newCentralPosition,
+                        data: centralNodeData 
+                    });
+                }
+            }
+        }
+
+        const updatedNodes = baseNodes.map(node => {
+          const update = nodesToUpdate.find(u => u.id === node.id);
+          return update ? update : node;
+        });
+
+        return [...updatedNodes, ...nodesToAdd];
+      });
+
+
+      // --- 核心修改：更新 Edges 状态 ---
+      setEdges(prevEdges => {
+          const keptEdges = prevEdges.filter(edge => {
+              const isCardEdge = edge.id.startsWith('edge-to-card-node-');
+              if (isCardEdge) {
+                  return validEdgeIds.has(edge.id); 
+              }
+              return true;
+          });
+
+          const finalKeptEdges = keptEdges.filter(edge => {
+              if (contentCards.length === 0) {
+                  return edge.target !== centralNodeId && edge.source !== centralNodeId;
+              }
+              return true;
+          });
+
+          const currentEdgeIds = new Set(finalKeptEdges.map(e => e.id));
+          const trulyNewEdges = edgesToAdd.filter(newEdge => !currentEdgeIds.has(newEdge.id));
+          
+          return [...finalKeptEdges, ...trulyNewEdges];
+      });
+      // --- 核心修改结束 ---
+
+      message.success('论证图谱已更新！');
       setIsGenerating(false);
 
-      // 移动视图到中心点
-      setTimeout(() => setCenter(centralNode.position.x, centralNode.position.y, { zoom: 0.8, duration: 800 }), 100);
+      setTimeout(() => setCenter(newCentralPosition.x, newCentralPosition.y, { zoom: 0.9, duration: 600 }), 100); 
 
-    }, 1000); // 1秒延迟
+    }, 500);
 
-  }, [cards, setNodes, setEdges, setCenter]);
-
-
+  }, []); 
+  
   return (
-    <div style={{ width: '100%', height: '600px', position: 'relative' }}>
+    // ▼▼▼ 5. 将 ref 添加到这个 div 上 ▼▼▼
+    <div ref={reactFlowWrapper} style={{ width: '100%', height: '75vh', position: 'relative' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -147,7 +320,8 @@ export default function ArgumentMap({
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         onEdgeDoubleClick={handleEdgeDoubleClick}
-        fitView
+        defaultViewport={{ x: 0, y: 0, zoom: 0.8 }} 
+        minZoom={0.2} 
       >
         <Controls />
         <Background variant="dots" gap={12} size={1} />
@@ -155,15 +329,16 @@ export default function ArgumentMap({
 
       <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10 }}>
         <Space>
-          <Button 
-            icon={<BulbOutlined />} 
-            onClick={generateMapFromCards} // <-- 调用新的函数
+          <Button
+            icon={<BulbOutlined />}
+            onClick={generateMapFromCards}
             loading={isGenerating}
             type="primary"
             style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
           >
             {isGenerating ? 'AI分析中...' : '基于批判性思维训练生成图谱'}
           </Button>
+          {/* ▼▼▼ 6. 这个按钮现在调用的是新的本地函数 ▼▼▼ */}
           <Button icon={<PlusOutlined />} onClick={addBlankNode}>
             添加卡片
           </Button>
