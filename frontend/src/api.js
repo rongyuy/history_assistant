@@ -101,11 +101,9 @@ export const postCreateTimelineEvent = (topic, text) => {
   return apiClient.post(`/timeline/${topic}/create-from-text`, { text });
 };
 
-export const getAIHints = (topic, cardTitle) => {
-  return apiClient.post('/hints', { 
-    topic: topic, 
-    card_title: cardTitle 
-  });
+export const getAIHints = (hintRequest) => {
+  // hintRequest 结构: { topic: "...", card_title: "...", context_text: "..." }
+  return apiClient.post('/hints', hintRequest);
 };
 
 

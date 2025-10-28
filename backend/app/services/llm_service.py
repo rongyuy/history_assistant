@@ -5,7 +5,7 @@ import json
 import random
 from openai import OpenAI, APITimeoutError # 导入APITimeoutError
 from app.schemas.main_schemas import AIChatRequest
-from typing import List, Dict,AsyncGenerator, Tuple # 确保导入 List 和 Dict
+from typing import List, Dict,AsyncGenerator, Tuple, Optional
 import functools
 
 # 修改客户端初始化，增加超时设置（例如90秒）
@@ -600,57 +600,74 @@ def summarize_event_from_text_only(text_snippet: str) -> str:
         print(f"LLM从文本片段仅概括事件时发生错误: {e}") 
         return "AI处理时遇到问题"
     
-def generate_thinking_hints(topic: str, card_title: str) -> dict:
+def generate_thinking_hints(topic: str, card_title: str, context_text: Optional[str] = None) -> dict:
     """
-    针对一个历史主题和一个批判性思维卡片标题，生成3个启发性的思考方向。
+    针对一个历史主题和一个批判性思维卡片标题，
+    【基于提供的完整学习材料】生成3个启发性的思考方向。
     """
-    print(f"LLM Service: Generating thinking hints for topic='{topic}', card_title='{card_title}'")
+    print(f"LLM Service: Generating CONTEXT-AWARE hints for topic='{topic}', card_title='{card_title}'")
+    
+    # 【修复2】生成一个随机数，作为 "缓存破坏者"
+    cache_buster = random.randint(1000, 9999) 
     
     system_prompt = f"""
 你是一名专业的历史学导师。你的任务是帮助学生进行批判性的反思总结。
 学生正在研究的历史主题是："{topic}"。
-他们正在尝试回答一个具体的问题卡片，标题为："{card_title}"。
 
-请你提供3个简短的“关键词提示”（Keywords），引导他们从不同角度深入思考。
-**每个提示词最好能很具体，紧扣问题卡片的主题，而不要太宽泛笼统。**
-**每个提示词最好在2-5个字，例如：“经济角度”、“社会影响”、“前后对比”等。**
-**重要：所有输出内容必须使用简体中文，不能使用繁体字。**
+**你的核心任务是：**
+严格为你指定的**【问题卡片】**提供3个简短的、具有启发性的“关键词提示”。
+【问题卡片】: "{card_title}"
 
-你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字。
+**规则：**
+1.  **【最重要】高度相关**: 你的提示词必须是**专门**用来回答“{card_title}”这个问题的。例如，如果问题是“直接原因”，就不要给“深层原因”的提示。
+2.  **【其次】基于材料**: 你的提示词必须从下面提供的【全部探究材料】中寻找灵感、证据或对比点。
+3.  **具体而非宽泛**：不要给"经济角度"、"社会影响"这种空洞的提示。要给出具体的提示，例如："对比A史料和B史料的矛盾"、"思考...事件的长期后果"、"...观点的证据"等。
+4.  **简短精炼**：每个提示词最好在10个字以内。
+5.  **简体中文**：所有输出必须使用简体中文。
+6.  **严格JSON**：你的输出必须严格遵循以下JSON格式，不要添加任何额外的解释或文字。
 
 {{
   "hints": [
-    "（关键词提示1）",
-    "（关键词提示2）",
-    "（关键词提示3）"
+    "（针对“{card_title}”的提示1）",
+    "（针对“{card_title}”的提示2）",
+    "（针对“{card_title}”的提示3）"
   ]
 }}
+
+(指令参考号: {cache_buster})
 """
     
-    # ▼▼▼ 2. 在这里添加核心修改 ▼▼▼
-    
-    # (a) 生成一个随机数，作为 "缓存破坏者"
-    cache_buster = random.randint(1000, 9999) 
+    # 【新增】如果上下文存在，就将其注入到 Prompt 中
+    if context_text:
+        system_prompt += f"""
+
+---
+【全部探究材料】
+(你生成的提示词必须与以下材料相关，并用于回答“{card_title}”)
+{context_text}
+---
+"""
+    else:
+         system_prompt += "\n\n（注意：未提供详细材料，请基于主题和卡片标题生成通用提示。）"
     
     messages = [
         {"role": "system", "content": system_prompt},
-        # (b) 将随机数附加到 user 的 content 末尾
-        {"role": "user", "content": f"请为我提供关于“{topic}”主题下“{card_title}”这个问题的3个思考方向。 (Ref: {cache_buster})"}
+        # 【修复2】从 user 消息中移除了 cache_buster
+        {"role": "user", "content": f"请为我提供关于“{topic}”主题下“{card_title}”这个问题的3个思考方向。"}
     ]
-    # ▲▲▲ 修改结束 ▲▲▲
 
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
             max_tokens=1000,
-            temperature=0.99, # 您的 0.99 设置保持不变
+            temperature=0.99, # 保持高随机性以获取不同提示
             response_format={"type": "json_object"}
         )
         
         content = response.choices[0].message.content
         data = json.loads(content)
-        print(f"LLM Service: Successfully generated hints for '{topic}' - '{card_title}'.")
+        print(f"LLM Service: Successfully generated context-aware hints for '{topic}' - '{card_title}'. (Ref: {cache_buster})")
         return data
 
     except APITimeoutError:

@@ -141,3 +141,13 @@ class DebatesResponse(BaseModel):
     
 class TimelineTextRequest(BaseModel):
     text: str
+    
+# ▼▼▼ 在此处添加下面这两个新的 Class ▼▼▼
+class HintRequest(BaseModel):
+    topic: str
+    card_title: str
+    context_text: Optional[str] = None  # <-- 【在这里添加这一行】
+
+class HintResponse(BaseModel):
+    hints: List[str]
+# ▲▲▲ 新增 Class 结束 ▲▲▲

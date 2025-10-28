@@ -63,6 +63,14 @@ DOMPurify.addHook('afterSanitizeAttributes', function (node) {
 });
 
 export default function InquiryPage() {
+  return (
+    <AntdApp>
+      <InquiryPageContent />
+    </AntdApp>
+  );
+}
+
+function InquiryPageContent() {
   const [topic, setTopic] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [nodes, setNodes] = useState([]);
@@ -92,6 +100,29 @@ export default function InquiryPage() {
   const [chatTrigger, setChatTrigger] = useState(null);
   const [chatValue, setChatValue] = useState('');
 
+  // ▼▼▼ 【第A步：状态提升】 ▼▼▼
+  const [loadingStates, setLoadingStates] = useState({ summary: true, viewpoints: true, sources: true });
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [coreData, setCoreData] = useState({
+    wikiSummary: { summary: '', timeline: [] },
+    viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
+    sources: { sources: [] },
+  });
+  const [fullHtmlContent, setFullHtmlContent] = useState('');
+  const [isFullContentLoading, setIsFullContentLoading] = useState(false);
+
+  const chatDraftsRef = useRef({
+    '任务一：史实认知': '',
+    '任务二：观点辨析': '',
+    '任务三：史料分析': '',
+    '任务四：反思总结': '',
+  });
+
+  const { message } = AntdApp.useApp();
+  // ▲▲▲ 状态提升结束 ▲▲▲
+
+  
   const completeTask = (taskType) => {
     
     if (questProgress.completedModules.includes(taskType)) {
@@ -148,6 +179,57 @@ export default function InquiryPage() {
     setNodes((nds) => [...nds, newNode]);
   };
 
+  // ▼▼▼ 【第B步：useEffect 数据获取逻辑上移】 ▼▼▼
+  useEffect(() => {
+    if (!topic) return;
+
+    const fetchData = () => {
+      setInitialLoading(true);
+      setError(null);
+      setCoreData({
+        wikiSummary: { summary: '', timeline: [] },
+        viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
+        sources: { sources: [] },
+      });
+      setLoadingStates({ summary: true, viewpoints: true, sources: true });
+
+      message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
+
+      setInitialLoading(false);
+
+      getWikiData(topic).then(res => {
+        setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
+        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史实认知': 'active' }}));
+        message.info('📚 史实认知任务已激活！');
+      }).catch(err => {
+        console.error("模块一加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, summary: false }));
+      });
+
+      getViewpointAnalysis(topic).then(res => {
+        setCoreData(prev => ({ ...prev, viewpoints: res.data }));
+        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '观点辨析': 'active' }}));
+      }).catch(err => {
+        console.error("模块二加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, viewpoints: false }));
+      });
+
+      getSourcesComparison(topic).then(res => {
+        setCoreData(prev => ({ ...prev, sources: res.data }));
+        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史料分析': 'active', '反思总结': 'active' }}));
+      }).catch(err => {
+        console.error("模块三加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, sources: false }));
+      });
+    };
+
+    fetchData();
+  }, [topic, setQuestProgress, message]); // <-- 确保 'message' 在依赖项中
+  // ▲▲▲ useEffect 上移结束 ▲▲▲
+
 
   const handleSearch = () => {
     if (inputValue && inputValue.trim()) {
@@ -163,7 +245,6 @@ export default function InquiryPage() {
   };
 
   return (
-    <AntdApp>
       <Layout style={{ height: '100vh', background: '#fff', overflow: 'hidden' }}>
         <Header
           style={{
@@ -207,6 +288,7 @@ export default function InquiryPage() {
             }}
           >
             {topic ? (
+              // ▼▼▼ 【第C步：传递 Props 给 CoreExplorer】 ▼▼▼
               <CoreExplorer
                 topic={topic}
                 setTopic={setTopic}
@@ -219,6 +301,19 @@ export default function InquiryPage() {
                 setChatTrigger={setChatTrigger}
                 chatValue={chatValue}
                 setChatValue={setChatValue}
+                // --- 新增的 Props ---
+                coreData={coreData}
+                setCoreData={setCoreData}
+                fullHtmlContent={fullHtmlContent}
+                setFullHtmlContent={setFullHtmlContent}
+                loadingStates={loadingStates}
+                setLoadingStates={setLoadingStates}
+                isFullContentLoading={isFullContentLoading}
+                setIsFullContentLoading={setIsFullContentLoading}
+                initialLoading={initialLoading}
+                error={error}
+                chatDraftsRef={chatDraftsRef}
+                // --- 结束 ---
               />
             ) : (
               <WelcomePage />
@@ -235,6 +330,7 @@ export default function InquiryPage() {
               height: '100%',
             }}
           >
+            {/* ▼▼▼ 【第D步：传递 Props 给 NotesWorkspace】 ▼▼▼ */}
             <NotesWorkspace
               topic={topic}
               nodes={nodes}
@@ -252,13 +348,16 @@ export default function InquiryPage() {
               initialCards={initialCards}
               setChatTrigger={setChatTrigger}
               setChatValue={setChatValue}
+              // --- 新增的 Props ---
+              coreData={coreData}
+              fullHtmlContent={fullHtmlContent}
+              // --- 结束 ---
             />
           </Sider>
         </Layout>
 
         <FloatButton.BackTop />
       </Layout>
-    </AntdApp>
   );
 }
 
@@ -306,7 +405,12 @@ function WelcomePage() {
     );
 }
 
-function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestProgress, completeTask, cards, chatTrigger, setChatTrigger, chatValue, setChatValue }) {
+// ▼▼▼ 【第E步：清理 CoreExplorer】 ▼▼▼
+function CoreExplorer({ 
+  topic, setTopic,addNodeToMap, questProgress, setQuestProgress, completeTask, cards, chatTrigger, setChatTrigger, chatValue, setChatValue,
+  // --- 接收 Props ---
+  coreData, setCoreData, fullHtmlContent, setFullHtmlContent, loadingStates, setLoadingStates, isFullContentLoading, setIsFullContentLoading, initialLoading, error, chatDraftsRef
+}) {
 
   const initialWelcomeMessages = useMemo(() => ({
     '任务一：史实认知': '我们已进入【史实认知】模块。请先阅读下方的摘要和时间线，然后可以点击“智能阅读”深入探索原文。准备好后，我们就可以开始提问式学习了。',
@@ -324,20 +428,16 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   });
 
   const [msgs, setMsgs] = useState([{ role: 'ai', text: initialWelcomeMessages['generic'] }]);
-  const [loadingStates, setLoadingStates] = useState({
-    summary: true,
-    viewpoints: true,
-    sources: true,
-  });
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [coreData, setCoreData] = useState({
-    wikiSummary: { summary: '', timeline: [] },
-    viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
-    sources: { sources: [] },
-  });
-  const [fullHtmlContent, setFullHtmlContent] = useState('');
-  const [isFullContentLoading, setIsFullContentLoading] = useState(false);
+  
+  // --- 【删除】以下所有状态，因为它们被上移了 ---
+  // const [loadingStates, setLoadingStates] = useState(...);
+  // const [initialLoading, setInitialLoading] = useState(true);
+  // const [error, setError] = useState(null);
+  // const [coreData, setCoreData] = useState(...);
+  // const [fullHtmlContent, setFullHtmlContent] = useState('');
+  // const [isFullContentLoading, setIsFullContentLoading] = useState(false);
+  // --- 【删除结束】---
+
   const [aiContext, setAiContext] = useState('');
   const [isChatOpen, setChatOpen] = useState(false); 
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
@@ -346,20 +446,17 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   const [activeCollapseKeys, setActiveCollapseKeys] = useState([]);
   const [textForTimeline, setTextForTimeline] = useState(null);
   const [isShuffling, setIsShuffling] = useState(false);
-
-  // ▼▼▼ 核心修改 1/3：新增状态存储动态生成的菜单项 ▼▼▼
   const [contextMenuItems, setContextMenuItems] = useState([]);
-  // ▲▲▲ 修改结束 ▲▲▲
 
   const { message } = AntdApp.useApp();
 
-  // ▼▼▼ 核心修改 2/3：修改 handleMenuOpenChange 以动态生成菜单 ▼▼▼
-  const handleMenuOpenChange = (isOpen) => {
+  const handleMenuOpenChange = (isOpen, moduleName) => { // <-- 注意：增加了 moduleName 参数
     if (isOpen) {
       const currentSelectedText = window.getSelection().toString().trim();
-      setSelectedTextForMenu(currentSelectedText);
+      setSelectedTextForMenu(currentSelectedText); // 状态依然保留
 
-      // 基本菜单项
+      const currentActiveModule = moduleName; 
+
       const baseItems = [
         {
           key: 'add-to-map',
@@ -378,10 +475,25 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
           label: '问问AI这段内容...',
           onClick: () => {
             if (currentSelectedText) {
-                setChatValue(`针对“${currentSelectedText}”我想问：`);
-                // 触发聊天框时不再直接设置模块，而是用 chatTrigger
-                setChatTrigger('针对选中内容提问');
-                // setChatOpen(true); // 让 chatTrigger 的 useEffect 去打开
+                // ▼▼▼ 【这是你的修复】 ▼▼▼
+
+                // 1. 先把要填充的草稿定义为一个变量
+                const draftText = `针对“${currentSelectedText}”我想问：`;
+                
+                // 2. 像以前一样，更新 state 以立即显示在输入框中
+                setChatValue(draftText);
+                
+                // 3. 【新增】同时，把这份草稿存入 Ref 中
+                if (chatDraftsRef.current) {
+                  chatDraftsRef.current[currentActiveModule] = draftText;
+                }
+                
+                // ▲▲▲ 修复结束 ▲▲▲
+
+                setChatTrigger({ 
+                  module: currentActiveModule, 
+                  selectedText: currentSelectedText 
+                });
                 message.info('请针对选中内容继续提问');
             } else {
               message.warning('请先选择一段文本再右键操作');
@@ -390,10 +502,8 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         },
       ];
 
-      // 检查当前激活的 Collapse key 是否是模块一 ('facts')
-      const isModuleOneActive = activeCollapseKeys.includes('facts');
+      const isModuleOneActive = (moduleName === '任务一：史实认知');
 
-      // 如果是模块一，添加 "添加为时间点"
       if (isModuleOneActive) {
         baseItems.push({
           key: 'add-to-timeline',
@@ -408,66 +518,11 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         });
       }
       
-      // 更新状态
       setContextMenuItems(baseItems);
     }
   };
-  // ▲▲▲ 修改结束 ▲▲▲
 
-  // 移除静态的 menuItems 定义
-  // const menuItems = [...] 
-
-  useEffect(() => {
-    if (!topic) return;
-
-    const fetchData = () => {
-      setInitialLoading(true);
-      setError(null);
-      setCoreData({
-        wikiSummary: { summary: '', timeline: [] },
-        viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
-        sources: { sources: [] },
-      });
-      setLoadingStates({ summary: true, viewpoints: true, sources: true });
-      setActiveModule(null);
-      setChatOpen(false); 
-      setActiveCollapseKeys([]); 
-
-      message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
-
-      setInitialLoading(false);
-
-      getWikiData(topic).then(res => {
-        setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史实认知': 'active' }}));
-        message.info('📚 史实认知任务已激活！');
-      }).catch(err => {
-        console.error("模块一加载失败:", err);
-      }).finally(() => {
-        setLoadingStates(prev => ({ ...prev, summary: false }));
-      });
-
-      getViewpointAnalysis(topic).then(res => {
-        setCoreData(prev => ({ ...prev, viewpoints: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '观点辨析': 'active' }}));
-      }).catch(err => {
-        console.error("模块二加载失败:", err);
-      }).finally(() => {
-        setLoadingStates(prev => ({ ...prev, viewpoints: false }));
-      });
-
-      getSourcesComparison(topic).then(res => {
-        setCoreData(prev => ({ ...prev, sources: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史料分析': 'active', '反思总结': 'active' }}));
-      }).catch(err => {
-        console.error("模块三加载失败:", err);
-      }).finally(() => {
-        setLoadingStates(prev => ({ ...prev, sources: false }));
-      });
-    };
-
-    fetchData();
-  }, [topic, setQuestProgress]);
+  // --- 【删除】整个 useEffect[topic] (fetchData)，因为它被上移了 ---
 
   const ensureFullContentFetched = async () => {
     if (fullHtmlContent && fullHtmlContent.content) {
@@ -497,76 +552,20 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     }
   };
 
-  const handleActivateModule = useCallback(async (moduleName) => {
-    // ▼▼▼ 核心修改部分：处理“针对选中内容提问” ▼▼▼
+  const handleActivateModule = useCallback(async (moduleName, selectedText = null) => {
     if (moduleName === '针对选中内容提问') {
-        setCurrentModule('针对选中内容提问');
-        setActiveModule('针对选中内容提问'); // 激活 "问AI" 模块
-
-        let basePrompt = '你现在正在指导学生【针对选中内容提问】。';
-        let moduleContext = '';
-        let contextTitle = '学习材料';
-
-        // 检查用户当前所在的模块 (activeModule 存储着上一个激活的模块)
-        switch (activeModule) {
-            case '任务一：史实认知':
-                // 需求 1: 使用维基百科原文 (如果已加载)
-                contextTitle = '维基百科原文（或摘要）';
-                if (fullHtmlContent && fullHtmlContent.content && fullHtmlContent.content.length > 0) {
-                    // 将HTML内容转换为纯文本
-                    moduleContext = fullHtmlContent.content.map(section => {
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = section.html_content;
-                        return `## ${section.title}\n\n${tempDiv.textContent || tempDiv.innerText || ''}`;
-                    }).join('\n\n');
-                } else {
-                    // 如果原文未加载，回退到摘要
-                    moduleContext = `维基百科摘要:\n${coreData.wikiSummary?.summary || '（原文未加载，摘要也为空）'}`;
-                }
-                break;
-                
-            case '任务二：观点辨析':
-                // 需求 2: 使用讨论页相关内容
-                // (注意: 完整的讨论页HTML state 在子组件中, 这里使用 coreData 中可用的相关数据)
-                contextTitle = '相关观点与讨论';
-                const debatesText = coreData.viewpoints.debates?.join('\n') || '（无讨论要点）';
-                const viewpointsText = coreData.viewpoints.viewpoints?.map(vp => `${vp.side}: ${vp.text}`).join('\n\n') || '（无AI分析观点）';
-                moduleContext = `--- 讨论页要点 ---\n${debatesText}\n\n--- AI分析观点 ---\n${viewpointsText}`;
-                break;
-                
-            case '任务三：史料分析':
-                // 需求 3: 使用爬取的参考文献全文
-                contextTitle = '参考文献全文';
-                if (coreData.sources && coreData.sources.references && coreData.sources.references.length > 0) {
-                    moduleContext = coreData.sources.references.map((ref, index) => 
-                        `--- 参考文献 ${index + 1}：${ref.title} ---\nURL: ${ref.url}\n${ref.content || '（内容为空或抓取失败）'}`
-                    ).join('\n\n');
-                } else {
-                    moduleContext = '（未找到参考文献数据）';
-                }
-                break;
-                
-            case '任务四：历史批判思维训练':
-                // (来自上一轮的修复，保持不变)
-                basePrompt = '你现在正在指导学生【针对"历史批判思维训练"笔记中的内容】进行提问。这是一个反思性任务，没有固定的“学习材料”，请基于学生的笔记内容和你的知识来回答。';
-                contextTitle = '学生的笔记内容参考';
-                moduleContext = cards.map(card => `【${card.title}】:\n${card.content || '未填写'}`).join('\n\n');
-                break;
-                
-            default:
-                // 当没有激活模块时的回退
-                moduleContext = '（无特定学习材料上下文）';
-        }
-
-        // 设置最终的 AI 上下文
-        setAiContext(`${basePrompt}\n\n${contextTitle}:\n${moduleContext}`);
-        setChatOpen(true);
-        return; 
+        console.warn('handleActivateModule called with obsolete module name, recovering...');
+        moduleName = activeModule || '任务一：史实认知'; 
     }
-    // ▲▲▲ 修改结束 ▲▲▲
     
-    if (activeModule === moduleName && isChatOpen) {
+    if (activeModule === moduleName && isChatOpen && !selectedText) {
       return; 
+    }
+
+    if (!selectedText) {
+      // 如果是点击“AI引导”按钮 (不是右键)
+      // 我们就从 Ref 加载这个模块对应的草稿
+      setChatValue(chatDraftsRef.current[moduleName] || '');
     }
 
     setCurrentModule(moduleName);
@@ -575,48 +574,140 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     if (chatHistoriesRef.current[moduleName]) {
       setMsgs(chatHistoriesRef.current[moduleName]);
     } else {
-      const newWelcome = { role: 'ai', text: `已激活【${moduleName}】模块。` };
+      const welcomeMsg = initialWelcomeMessages[moduleName] || `已激活【${moduleName}】模块。`;
+      const newWelcome = { role: 'ai', text: welcomeMsg };
       setMsgs([newWelcome]);
       chatHistoriesRef.current[moduleName] = [newWelcome];
     }
 
-    let context = '';
     let aiPrompt = '';
-    let taskType = '';
-
+    let context = '';
+    let contextTitle = '学习材料';
+    
+    // (这个 switch 语句依赖 props: fullHtmlContent, coreData, cards)
     switch (moduleName) {
-      case '任务一：史实认知':
-        taskType = '史实认知';
-        context = `维基百科摘要:\n${coreData.wikiSummary?.summary || ''}`;
-        aiPrompt = '你现在正在指导学生完成"史实认知"任务。请利用苏格拉底教育法，通过提问，一步一步帮助学生建立历史事件的基本框架。';
+      case '任务一：史实认知': { 
+        aiPrompt = '你现在正在指导学生完成"史实认知"任务。';
+        contextTitle = '维基百科原文（或摘要）';
+        if (fullHtmlContent && fullHtmlContent.content && fullHtmlContent.content.length > 0) {
+            context = fullHtmlContent.content.map(section => {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = section.html_content;
+                return `## ${section.title}\n\n${tempDiv.textContent || tempDiv.innerText || ''}`;
+            }).join('\n\n');
+        } else {
+            context = `维基百科摘要:\n${coreData.wikiSummary?.summary || '（摘要为空）'}`;
+        }
         break;
-      case '任务二：观点辨析':
-        taskType = '观点辨析';
-        context = `对立观点:\n${coreData.viewpoints.viewpoints.map(vp => `${vp.side}: ${vp.text}`).join('\n\n')}`;
-        aiPrompt = '你现在正在指导学生完成"观点辨析"任务。请利用苏格拉底教育法，通过提问，帮助学生分析不同立场和争议。';
+      } 
+
+      case '任务二：观点辨析': { 
+        aiPrompt = '你现在正在指导学生完成"观点辨析"任务。';
+        contextTitle = '相关观点与讨论';
+        const debatesText = coreData.viewpoints.debates?.join('\n') || '（无讨论要点）';
+        const viewpointsText = coreData.viewpoints.viewpoints?.map(vp => `${vp.side}: ${vp.text}`).join('\n\n') || '（无AI分析观点）';
+        context = `--- 讨论页要点 ---\n${debatesText}\n\n--- AI分析观点 ---\n${viewpointsText}`;
         break;
-      case '任务三：史料分析':
-        taskType = '史料分析';
-        context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n')}`;
-        aiPrompt = '你现在正在指导学生完成"史料分析"任务。请利用苏格拉底教育法，通过提问，帮助学生对比多方史料证据。';
+      } 
+
+      case '任务三：史料分析': { 
+        aiPrompt = '你现在正在指导学生完成"史料分析"任务。';
+        contextTitle = '参考文献全文';
+        if (coreData.sources && coreData.sources.references && coreData.sources.references.length > 0) {
+            context = coreData.sources.references.map((ref, index) => 
+                `--- 参考文献 ${index + 1}：${ref.title} ---\nURL: ${ref.url}\n${ref.content || '（内容为空或抓取失败）'}`
+            ).join('\n\n');
+        } else {
+            context = '（未找到参考文献数据）';
+        }
         break;
-      case '任务四：反思总结':
-        taskType = '反思总结';
-        context = cards.map(card => `【${card.title}】:\n${card.content || '未填写'}`).join('\n\n');
-        aiPrompt = '你现在正在指导学生完成"反思总结"任务。请利用苏格拉底教育法，引导学生进行更高层次的反思，融合偶然性、复杂性、历史之重要性和伦理维度。';
+      } 
+
+      case '任务四：反思总结': { 
+        aiPrompt = '你现在正在指导学生完成"反思总结"任务。';
+        contextTitle = '全部探究材料（供你参考以进行总结）';
+
+        let contextModule1 = '';
+        let contextModule2 = '';
+        let contextModule3 = '';
+        let contextModule4 = '';
+
+        if (fullHtmlContent && fullHtmlContent.content && fullHtmlContent.content.length > 0) {
+            contextModule1 = fullHtmlContent.content.map(section => {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = section.html_content;
+                return `## ${section.title}\n\n${tempDiv.textContent || tempDiv.innerText || ''}`;
+            }).join('\n\n');
+        } else {
+            contextModule1 = `维基百科摘要:\n${coreData.wikiSummary?.summary || '（摘要为空）'}`;
+        }
+
+        const debatesText = coreData.viewpoints.debates?.join('\n') || '（无讨论要点）';
+        const viewpointsText = coreData.viewpoints.viewpoints?.map(vp => `${vp.side}: ${vp.text}`).join('\n\n') || '（无AI分析观点）';
+        contextModule2 = `--- 讨论页要点 ---\n${debatesText}\n\n--- AI分析观点 ---\n${viewpointsText}`;
+
+        if (coreData.sources && coreData.sources.references && coreData.sources.references.length > 0) {
+            contextModule3 = coreData.sources.references.map((ref, index) => 
+                `--- 参考文献 ${index + 1}：${ref.title} ---\nURL: ${ref.url}\n${ref.content || '（内容为空或抓取失败）'}`
+            ).join('\n\n');
+        } else {
+            contextModule3 = '（未找到参考文献数据）';
+        }
+
+        contextModule4 = cards.map(card => `【${card.title}】:\n${card.content || '未填写'}`).join('\n\n');
+        
+        context = `
+【模块一：史实认知材料参考】
+${contextModule1}
+
+---
+
+【模块二：观点辨析材料参考】
+${contextModule2}
+
+---
+
+【模块三：史料分析材料参考】
+${contextModule3}
+
+---
+
+【模块四：学生当前的反思笔记】
+${contextModule4}
+        `;
+        
         break;
+      } 
+
+      default: { 
+        aiPrompt = '你是一名AI导师。';
+        context = '（无特定学习材料上下文）';
+      }
     }
 
-    setAiContext(`${aiPrompt}\n\n学习材料:\n${context}`);
+    let finalContext = `${aiPrompt}\n\n${contextTitle}:\n${context}`;
+    
+    if (selectedText) {
+      finalContext += `\n\n--- 以下是学生刚刚选中的文本，请重点针对此内容提问 ---\n${selectedText}\n---`;
+    }
+    
+    setAiContext(finalContext);
     setChatOpen(true);
-  }, [activeModule, isChatOpen, coreData, cards, setAiContext, setChatOpen, setCurrentModule, setActiveModule, setMsgs, chatHistoriesRef]);
+
+  }, 
+  [activeModule, isChatOpen, coreData, cards, setAiContext, setChatOpen, setCurrentModule, setActiveModule, setMsgs, chatHistoriesRef, fullHtmlContent, initialWelcomeMessages, setChatValue, chatDraftsRef]
+  );
 
   useEffect(() => {
     if (chatTrigger) {
-      handleActivateModule(chatTrigger); 
+      const moduleName = chatTrigger.module || chatTrigger;
+      const selectedText = chatTrigger.selectedText || null;
+      
+      handleActivateModule(moduleName, selectedText); 
+
       setChatTrigger(null); 
     }
-  }, [chatTrigger, setChatTrigger, handleActivateModule]); 
+  }, [chatTrigger, setChatTrigger, handleActivateModule]);
   
   const handleCollapseChange = (keys) => {
     const expandedKey = keys.find(key => !activeCollapseKeys.includes(key));
@@ -634,7 +725,6 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
       }
     }
     
-    // 始终更新 activeCollapseKeys，以便 handleMenuOpenChange 能获取最新状态
     setActiveCollapseKeys(keys);
   };
 
@@ -703,13 +793,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
   return (
     <div>
-      {/* ▼▼▼ 核心修改 3/3：让主 Dropdown 使用动态生成的 contextMenuItems ▼▼▼ */}
-      <Dropdown
-        menu={{ items: contextMenuItems }}
-        trigger={['contextMenu']}
-        onOpenChange={handleMenuOpenChange}
-      >
-      {/* ▲▲▲ 修改结束 ▲▲▲ */}
+      
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Title level={3} style={{ marginBottom: 0 }}>
@@ -725,7 +809,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
             style={{ background: "transparent" }}
             items={[
               {
-                key: "facts", // 模块一的 key
+                key: "facts", 
                 label: <ModuleHeader
                   icon={<BookOutlined />}
                   title="任务一：史实认知"
@@ -734,21 +818,28 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                   isCompleted={questProgress.completedModules.includes('史实认知')}
                   taskState={questProgress.moduleStates['史实认知']}
                 />,
-                children: (
-                  loadingStates.summary ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="AI正在生成摘要与时间线..." /></div> : 
+                children: (<Dropdown
+                    menu={{ items: contextMenuItems }}
+                    trigger={['contextMenu']}
+                    onOpenChange={(isOpen) => handleMenuOpenChange(isOpen, '任务一：史实认知')}
+                  >
+                    <div>
+                      {loadingStates.summary ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="AI正在生成摘要与时间线..." /></div> :
                   <WikiSummaryCard
-                    data={coreData.wikiSummary}
-                    topic={topic}
-                    fullHtmlContent={fullHtmlContent}
-                    isFullContentLoading={isFullContentLoading}
-                    ensureFullContentFetched={ensureFullContentFetched}
-                    textForTimeline={textForTimeline}
-                    onTimelineActionComplete={() => setTextForTimeline(null)}
-                  />
+                        data={coreData.wikiSummary}
+                        topic={topic}
+                        fullHtmlContent={fullHtmlContent}
+                        isFullContentLoading={isFullContentLoading}
+                        ensureFullContentFetched={ensureFullContentFetched}
+                        textForTimeline={textForTimeline}
+                        onTimelineActionComplete={() => setTextForTimeline(null)}
+                      />}
+                    </div>
+                  </Dropdown>
                 ),
               },
               {
-                key: "views", // 模块二的 key
+                key: "views", 
                 label: <ModuleHeader
                   icon={<BulbOutlined />}
                   title="任务二：观点辨析"
@@ -758,16 +849,24 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                   taskState={questProgress.moduleStates['观点辨析']}
                 />,
                 children: (
-                  loadingStates.viewpoints ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="AI正在分析不同观点..." /></div> : 
-                  <ViewpointAnalysis 
-                    data={coreData.viewpoints} 
-                    topic={topic} 
-                    isActive={activeCollapseKeys.includes('views')}
-                  />
+                  <Dropdown
+                    menu={{ items: contextMenuItems }}
+                    trigger={['contextMenu']}
+                    onOpenChange={(isOpen) => handleMenuOpenChange(isOpen, '任务二：观点辨析')}
+                  >
+                    <div>
+                      {loadingStates.viewpoints ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="AI正在分析不同观点..." /></div> : 
+                      <ViewpointAnalysis 
+                        data={coreData.viewpoints} 
+                        topic={topic} 
+                        isActive={activeCollapseKeys.includes('views')}
+                      />}
+                    </div>
+                  </Dropdown>
                 ),
               },
               {
-                key: "sources", // 模块三的 key
+                key: "sources", 
                 label: <ModuleHeader
                   icon={<BookOutlined />}
                   title="任务三：史料分析"
@@ -777,20 +876,27 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
                   taskState={questProgress.moduleStates['史料分析']}
                 />,
                 children: (
-                  loadingStates.sources ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="正在抓取和对比多方史料..." /></div> : 
-                  <SourcesComparisonCard 
-                    data={coreData.sources} 
-                    onRefresh={handleRefreshSources} 
-                    isLoading={loadingStates.sources}
-                    onShuffle={handleShuffleSources} 
-                    isShuffling={isShuffling} 
-                  />
+                  <Dropdown
+                    menu={{ items: contextMenuItems }}
+                    trigger={['contextMenu']}
+                    onOpenChange={(isOpen) => handleMenuOpenChange(isOpen, '任务三：史料分析')}
+                  >
+                    <div>
+                      {loadingStates.sources ? <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin tip="正在抓取和对比多方史料..." /></div> : 
+                      <SourcesComparisonCard 
+                        data={coreData.sources} 
+                        onRefresh={handleRefreshSources} 
+                        isLoading={loadingStates.sources}
+                        onShuffle={handleShuffleSources} 
+                        isShuffling={isShuffling} 
+                      />}
+                    </div>
+                  </Dropdown>
                 ),
               },
             ]}
           />
         </Space>
-      </Dropdown> {/* 主 Dropdown 结束 */}
 
        <AIChatDock
          topic={topic}
@@ -805,10 +911,12 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
          setChatValue={setChatValue}
          questProgress={questProgress}
          completeTask={completeTask}
+         chatDraftsRef={chatDraftsRef}
        />
     </div>
   );
 }
+// ▲▲▲ 【CoreExplorer 清理结束】 ▲▲▲
 
 function QuestProgress({ questProgress }) {
   const { completedModules, currentTask, totalTasks, moduleStates } = questProgress;
@@ -1923,8 +2031,12 @@ function SourcesComparisonCard({ data, onRefresh, isLoading, onShuffle, isShuffl
   );
 }
 
-// ▼▼▼ 11. 修改 EditableCard 签名，接收 addNodeToMap, setChatTrigger, setChatValue ▼▼▼
-function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTrigger, setChatValue }) {
+// ▼▼▼ 【第F步：修改 EditableCard】 ▼▼▼
+function EditableCard({ 
+  card, onChange, onDelete, topic, addNodeToMap, setChatTrigger, setChatValue,
+  // --- 接收新 Props ---
+  coreData, fullHtmlContent 
+}) {
   const { isListening, startListening } = useSpeechRecognition(
     (transcript) => {
       const newContent = card.content ? `${card.content}\n${transcript}` : transcript;
@@ -1938,18 +2050,15 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
   const hintsFetched = useRef(false); 
   const [showHints, setShowHints] = useState(false);
   
-  // ▼▼▼ 12. 为 Input 和 TextArea 添加状态和处理函数 ▼▼▼
   const [selectedText, setSelectedText] = useState('');
 
   const handleMenuOpen = (isOpen) => {
     if (isOpen) {
-      // 从全局获取高亮的文本
       const text = window.getSelection().toString().trim();
       setSelectedText(text);
     }
   };
 
-  // 菜单项 (用于 Input 和 TextArea)
   const cardMenuItems = [
     {
       key: 'add-to-map',
@@ -1969,7 +2078,10 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
       onClick: () => {
         if (selectedText) {
           setChatValue(`针对“${selectedText}”我想问：`);
-          setChatTrigger('针对选中内容提问'); // 触发 CoreExplorer 中的聊天框
+          setChatTrigger({ 
+            module: '任务四：反思总结', 
+            selectedText: selectedText 
+          });
         } else {
           message.warning('没有选中文本');
         }
@@ -1977,7 +2089,6 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
     }
   ];
 
-  // 菜单项 (用于 Hint Tags)
   const hintMenuItems = (hintText) => [
     {
       key: 'add-to-map',
@@ -1992,19 +2103,74 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
       label: '问问AI这段内容...',
       onClick: () => {
         setChatValue(`针对“${hintText}”我想问：`);
-        setChatTrigger('针对选中内容提问'); // 触发 CoreExplorer 中的聊天框
+        setChatTrigger({ 
+          module: '任务四：反思总结', 
+          selectedText: hintText 
+        });
       }
     }
   ];
-  // ▲▲▲ 新增菜单逻辑结束 ▲▲▲
 
 
+  // ▼▼▼ 【替换】整个 fetchHints 函数 ▼▼▼
   const fetchHints = async () => {
     if (isHintLoading) return; 
 
     setIsHintLoading(true);
+    
+    // 1. 构建完整的上下文材料
+    let context = '';
     try {
-      const response = await getAIHints(topic, card.title);
+      let contextModule1 = '';
+      if (fullHtmlContent && fullHtmlContent.content && fullHtmlContent.content.length > 0) {
+          contextModule1 = fullHtmlContent.content.map(section => {
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = section.html_content;
+              return `## ${section.title}\n\n${tempDiv.textContent || tempDiv.innerText || ''}`;
+          }).join('\n\n');
+      } else {
+          contextModule1 = `维基百科摘要:\n${coreData.wikiSummary?.summary || '（摘要为空）'}`;
+      }
+
+      const debatesText = coreData.viewpoints.debates?.join('\n') || '（无讨论要点）';
+      const viewpointsText = coreData.viewpoints.viewpoints?.map(vp => `${vp.side}: ${vp.text}`).join('\n\n') || '（无AI分析观点）';
+      const contextModule2 = `--- 讨论页要点 ---\n${debatesText}\n\n--- AI分析观点 ---\n${viewpointsText}`;
+
+      let contextModule3 = '';
+      if (coreData.sources && coreData.sources.references && coreData.sources.references.length > 0) {
+          contextModule3 = coreData.sources.references.map((ref, index) => 
+              `--- 参考文献 ${index + 1}：${ref.title} ---\nURL: ${ref.url}\n${ref.content || '（内容为空或抓取失败）'}`
+          ).join('\n\n');
+      } else {
+          contextModule3 = '（未找到参考文献数据）';
+      }
+      
+      context = `
+【模块一：史实认知材料参考】
+${contextModule1}
+
+---
+
+【模块二：观点辨析材料参考】
+${contextModule2}
+
+---
+
+【模块三：史料分析材料参考】
+${contextModule3}
+      `;
+    } catch (e) {
+        console.error("Error building context for hints:", e);
+        context = "（上下文构建失败）";
+    }
+
+    // 2. 发送包含完整上下文的API请求
+    try {
+      const response = await getAIHints({
+        topic: topic, 
+        card_title: card.title,
+        context_text: context // <-- 传入构建好的上下文
+      });
       const fetchedHints = response.data.hints || [];
       setHints(fetchedHints);
       hintsFetched.current = true; 
@@ -2015,6 +2181,8 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
       setIsHintLoading(false);
     }
   };
+  // ▲▲▲ 【fetchHints 替换结束】 ▲▲▲
+
 
   const handleHintButtonClick = () => {
     const nextShowState = !showHints;
@@ -2040,7 +2208,6 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
       <Space direction="vertical" style={{ width: '100%' }}>
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {/* ▼▼▼ 13. 包裹卡片标题 Input ▼▼▼ */}
           <Dropdown menu={{ items: cardMenuItems }} trigger={['contextMenu']} onOpenChange={handleMenuOpen}>
             <Input
               variant="borderless"
@@ -2049,7 +2216,6 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
               style={{ fontWeight: 'bold', fontSize: '16px', padding: 0, cursor: 'text' }}
             />
           </Dropdown>
-          {/* ▲▲▲ 包裹结束 ▲▲▲ */}
           <Button
             type="text"
             danger
@@ -2059,7 +2225,6 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
           />
         </div>
         
-        {/* ▼▼▼ 14. 包裹 TextArea 及其容器 ▼▼▼ */}
         <Dropdown menu={{ items: cardMenuItems }} trigger={['contextMenu']} onOpenChange={handleMenuOpen}>
           <div style={{ position: 'relative', width: '100%' }}>
             <TextArea
@@ -2086,7 +2251,6 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
             />
           </div>
         </Dropdown>
-        {/* ▲▲▲ 包裹结束 ▲▲▲ */}
 
 
         <div style={{ width: '100%', marginTop: '4px', textAlign: 'left' }}>
@@ -2124,10 +2288,9 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
                 </div>
               ) : (
                 <Space wrap>
-                  {/* ▼▼▼ 15. 包裹 Hint Tags ▼▼▼ */}
                   {hints.map((hint, index) => (
                     <Dropdown 
-                      menu={{ items: hintMenuItems(hint) }} // 使用特定于 hint 的菜单
+                      menu={{ items: hintMenuItems(hint) }}
                       trigger={['contextMenu']} 
                       key={index}
                     >
@@ -2136,7 +2299,6 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
                       </Tag>
                     </Dropdown>
                   ))}
-                  {/* ▲▲▲ 包裹结束 ▲▲▲ */}
                 </Space>
               )}
             </div>
@@ -2146,8 +2308,10 @@ function EditableCard({ card, onChange, onDelete, topic, addNodeToMap, setChatTr
     </Card>
   );
 }
+// ▲▲▲ 【EditableCard 修改结束】 ▲▲▲
 
-// 16. 修改 HistoricalCriticalThinkingSection 签名，接收并传递 addNodeToMap 和 setChatValue
+
+// ▼▼▼ 【第G步：修改 HistoricalCriticalThinkingSection】 ▼▼▼
 function HistoricalCriticalThinkingSection({ 
   questProgress, 
   onCompleteAllTasks,
@@ -2158,8 +2322,11 @@ function HistoricalCriticalThinkingSection({
   setChatTrigger, 
   addNodeToMap, 
   setChatValue, 
-  setNodes, // <-- 【新增】接收 setNodes
-  setEdges, // <-- 【新增】接收 setEdges
+  setNodes,
+  setEdges,
+  // --- 接收新 Props ---
+  coreData,
+  fullHtmlContent
 }) {
   const { message } = AntdApp.useApp();
 
@@ -2219,22 +2386,18 @@ ${content.trim()}
 
   const handleSave = () => {
     
-    // ▼▼▼ 【核心修改】在这里执行清除操作 ▼▼▼
     setNodes(currentNodes => 
         currentNodes.filter(node => 
-            // 保留所有“非”卡片节点（即保留核心节点和手动添加的节点）
             !node.id.startsWith('card-node-')
         )
     );
     setEdges(currentEdges =>
         currentEdges.filter(edge =>
-            // 保留所有“非”卡片连线
             !edge.id.startsWith('edge-to-card-node-')
         )
     );
-    // ▲▲▲ 修改结束 ▲▲▲
 
-    message.success('内容已保存，旧图谱卡片已清除！'); // 修改提示信息
+    message.success('内容已保存，旧图谱卡片已清除！'); 
     
     if (cards.some(card => card.content.trim())) {
       onCompleteAllTasks && onCompleteAllTasks();
@@ -2304,10 +2467,12 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
             onChange={handleCardChange}
             onDelete={handleDeleteCard}
             topic={topic}
-            // ▼▼▼ 17. 传递 props 到 EditableCard ▼▼▼
             addNodeToMap={addNodeToMap}
             setChatTrigger={setChatTrigger}
             setChatValue={setChatValue}
+            // --- 传递 Props ---
+            coreData={coreData}
+            fullHtmlContent={fullHtmlContent}
           />
         ))}
 
@@ -2346,9 +2511,10 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
     </Card>
   );
 }
+// ▲▲▲ 【HistoricalCriticalThinkingSection 修改结束】 ▲▲▲
 
-// 18. 修改 AIChatDock 签名，接收 chatValue 和 setChatValue
-function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask,msgs, setMsgs }) {
+
+function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask,msgs, setMsgs, chatDraftsRef }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
     const RIGHT_OFFSET = `calc(${SIDER_WIDTH_PERCENT} + ${CONTENT_PADDING}px)`;
@@ -2416,8 +2582,12 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
         const userMessage = { role: 'user', text: chatValue };
         const newMsgs = [...msgs, userMessage, { role: 'ai', text: '' }];
         setMsgs(newMsgs);
-        setChatValue(''); // 清空提升后的状态
+        setChatValue(''); 
         setLoading(true);
+
+        if (currentModule && chatDraftsRef.current) {
+          chatDraftsRef.current[currentModule] = '';
+        }
 
         const chatRequest = {
             history: newMsgs.slice(0, -1).map(m => ({
@@ -2549,8 +2719,17 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                 <Space.Compact style={{ width: "100%", marginTop: 8 }}>
                     <Input.TextArea
                         placeholder={isListening ? "正在聆听..." : (loading ? "AI正在思考..." : "输入你的想法/问题，Enter 发送 (Shift+Enter换行)")}
-                        value={chatValue} // 19. 使用提升后的 chatValue
-                        onChange={(e) => setChatValue(e.target.value)} // 20. 使用提升后的 setChatValue
+                        value={chatValue}
+                        onChange={(e) => {
+                          const newValue = e.target.value;
+                          // 1. 像以前一样更新 state (这样输入框才能显示文字)
+                          setChatValue(newValue);
+                          
+                          // 2. 同时，把新内容存入 ref 对应的模块草稿中
+                          if (currentModule && chatDraftsRef.current) {
+                            chatDraftsRef.current[currentModule] = newValue;
+                          }
+                        }}
                         onPressEnter={(e) => {
                             if (!e.shiftKey && !loading) {
                               e.preventDefault();
@@ -2598,7 +2777,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
      );
  }
 
-// 21. 修改 NotesWorkspace 签名，接收并传递 addNodeToMap 和 setChatValue
+// ▼▼▼ 【第H步：修改 NotesWorkspace】 ▼▼▼
 function NotesWorkspace({
   topic,
   nodes,
@@ -2606,7 +2785,7 @@ function NotesWorkspace({
   onNodesChange,
   onEdgesChange,
   onConnect,
-  addNodeToMap, // 接收
+  addNodeToMap,
   setNodes,
   setEdges,
   questProgress,
@@ -2615,7 +2794,10 @@ function NotesWorkspace({
   setCards, 
   initialCards, 
   setChatTrigger,
-  setChatValue, // 接收
+  setChatValue,
+  // --- 接收新 Props ---
+  coreData,
+  fullHtmlContent
 }) {
 
   const items = [
@@ -2635,10 +2817,13 @@ function NotesWorkspace({
         topic={topic}
         initialCards={initialCards} 
         setChatTrigger={setChatTrigger}
-        addNodeToMap={addNodeToMap} // 传递
-        setChatValue={setChatValue} // 传递
-        setNodes={setNodes} // <-- 【新增】把 setNodes 传进去
-        setEdges={setEdges} // <-- 【新增】把 setEdges 传进去
+        addNodeToMap={addNodeToMap} 
+        setChatValue={setChatValue} 
+        setNodes={setNodes}
+        setEdges={setEdges} 
+        // --- 传递 Props ---
+        coreData={coreData}
+        fullHtmlContent={fullHtmlContent}
       />,
     },
     {
@@ -2677,3 +2862,4 @@ function NotesWorkspace({
     </Space>
   );
 }
+// ▲▲▲ 【NotesWorkspace 修改结束】 ▲▲▲
