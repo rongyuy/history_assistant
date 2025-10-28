@@ -76,7 +76,7 @@ export default function InquiryPage() {
       '史实认知': 'pending',
       '观点辨析': 'pending',
       '史料分析': 'pending',
-      '历史批判思维训练': 'pending'
+      '反思总结': 'pending'
     }
   });
 
@@ -99,7 +99,7 @@ export default function InquiryPage() {
     }
 
     setQuestProgress(prev => {
-      const taskOrder = ['史实认知', '观点辨析', '史料分析', '历史批判思维训练'];
+      const taskOrder = ['史实认知', '观点辨析', '史料分析', '反思总结'];
       const newCompletedSet = new Set([...prev.completedModules, taskType]);
       const newCompletedModules = Array.from(newCompletedSet);
       const newModuleStates = {
@@ -110,8 +110,8 @@ export default function InquiryPage() {
 
       if (nextTask && newModuleStates[nextTask] !== 'completed') {
         newModuleStates[nextTask] = 'active'; 
-        if (nextTask === '历史批判思维训练') {
-            message.success('🎯 任务四：历史批判思维训练已激活！请在笔记工作区进行最终补充完善。');
+        if (nextTask === '反思总结') {
+            message.success('🎯 任务四：反思总结已激活！请在笔记工作区进行最终补充完善。');
         }
       }
 
@@ -246,7 +246,7 @@ export default function InquiryPage() {
               setNodes={setNodes}
               setEdges={setEdges}
               questProgress={questProgress}
-              onCompleteAllTasks={() => completeTask('历史批判思维训练')}
+              onCompleteAllTasks={() => completeTask('反思总结')}
               cards={cards} 
               setCards={setCards}
               initialCards={initialCards}
@@ -312,7 +312,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     '任务一：史实认知': '我们已进入【史实认知】模块。请先阅读下方的摘要和时间线，然后可以点击“智能阅读”深入探索原文。准备好后，我们就可以开始提问式学习了。',
     '任务二：观点辨析': '现在是【观点辨析】模块。这里列出了关于此事件的不同阵营作用和主要争议点，让我们一同分析其来源与立场。',
     '任务三：史料分析': '欢迎来到【史料分析】模块。这里展示了从不同来源搜集到的史料片段，我将协助您进行对比与质询。',
-    '任务四：历史批判思维训练': '我们已进入【历史批判思维训练】模块。这项任务在右侧的“笔记工作区”完成。我将在这里引导你进行更高层次的反思。',
+    '任务四：反思总结': '我们已进入【反思总结】模块。这项任务在右侧的“笔记工作区”完成。我将在这里引导你进行更高层次的反思。',
     'generic': '🏛️ 欢迎，历史探索者！我是你的AI导师助手。让我们开始这次激动人心的历史调查之旅吧！\n\n你的任务是完成四个维度的探索，最终形成一份完整的历史调查报告。准备好开始了吗？'
   }), []); 
 
@@ -320,7 +320,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
     '任务一：史实认知': [{ role: 'ai', text: initialWelcomeMessages['任务一：史实认知'] }],
     '任务二：观点辨析': [{ role: 'ai', text: initialWelcomeMessages['任务二：观点辨析'] }],
     '任务三：史料分析': [{ role: 'ai', text: initialWelcomeMessages['任务三：史料分析'] }],
-    '任务四：历史批判思维训练': [{ role: 'ai', text: initialWelcomeMessages['任务四：历史批判思维训练'] }],
+    '任务四：反思总结': [{ role: 'ai', text: initialWelcomeMessages['任务四：反思总结'] }],
   });
 
   const [msgs, setMsgs] = useState([{ role: 'ai', text: initialWelcomeMessages['generic'] }]);
@@ -458,7 +458,7 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
 
       getSourcesComparison(topic).then(res => {
         setCoreData(prev => ({ ...prev, sources: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史料分析': 'active', '历史批判思维训练': 'active' }}));
+        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史料分析': 'active', '反思总结': 'active' }}));
       }).catch(err => {
         console.error("模块三加载失败:", err);
       }).finally(() => {
@@ -498,13 +498,72 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
   };
 
   const handleActivateModule = useCallback(async (moduleName) => {
+    // ▼▼▼ 核心修改部分：处理“针对选中内容提问” ▼▼▼
     if (moduleName === '针对选中内容提问') {
         setCurrentModule('针对选中内容提问');
-        setActiveModule('针对选中内容提问');
-        setAiContext('你现在正在指导学生【针对选中内容提问】。');
+        setActiveModule('针对选中内容提问'); // 激活 "问AI" 模块
+
+        let basePrompt = '你现在正在指导学生【针对选中内容提问】。';
+        let moduleContext = '';
+        let contextTitle = '学习材料';
+
+        // 检查用户当前所在的模块 (activeModule 存储着上一个激活的模块)
+        switch (activeModule) {
+            case '任务一：史实认知':
+                // 需求 1: 使用维基百科原文 (如果已加载)
+                contextTitle = '维基百科原文（或摘要）';
+                if (fullHtmlContent && fullHtmlContent.content && fullHtmlContent.content.length > 0) {
+                    // 将HTML内容转换为纯文本
+                    moduleContext = fullHtmlContent.content.map(section => {
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = section.html_content;
+                        return `## ${section.title}\n\n${tempDiv.textContent || tempDiv.innerText || ''}`;
+                    }).join('\n\n');
+                } else {
+                    // 如果原文未加载，回退到摘要
+                    moduleContext = `维基百科摘要:\n${coreData.wikiSummary?.summary || '（原文未加载，摘要也为空）'}`;
+                }
+                break;
+                
+            case '任务二：观点辨析':
+                // 需求 2: 使用讨论页相关内容
+                // (注意: 完整的讨论页HTML state 在子组件中, 这里使用 coreData 中可用的相关数据)
+                contextTitle = '相关观点与讨论';
+                const debatesText = coreData.viewpoints.debates?.join('\n') || '（无讨论要点）';
+                const viewpointsText = coreData.viewpoints.viewpoints?.map(vp => `${vp.side}: ${vp.text}`).join('\n\n') || '（无AI分析观点）';
+                moduleContext = `--- 讨论页要点 ---\n${debatesText}\n\n--- AI分析观点 ---\n${viewpointsText}`;
+                break;
+                
+            case '任务三：史料分析':
+                // 需求 3: 使用爬取的参考文献全文
+                contextTitle = '参考文献全文';
+                if (coreData.sources && coreData.sources.references && coreData.sources.references.length > 0) {
+                    moduleContext = coreData.sources.references.map((ref, index) => 
+                        `--- 参考文献 ${index + 1}：${ref.title} ---\nURL: ${ref.url}\n${ref.content || '（内容为空或抓取失败）'}`
+                    ).join('\n\n');
+                } else {
+                    moduleContext = '（未找到参考文献数据）';
+                }
+                break;
+                
+            case '任务四：历史批判思维训练':
+                // (来自上一轮的修复，保持不变)
+                basePrompt = '你现在正在指导学生【针对"历史批判思维训练"笔记中的内容】进行提问。这是一个反思性任务，没有固定的“学习材料”，请基于学生的笔记内容和你的知识来回答。';
+                contextTitle = '学生的笔记内容参考';
+                moduleContext = cards.map(card => `【${card.title}】:\n${card.content || '未填写'}`).join('\n\n');
+                break;
+                
+            default:
+                // 当没有激活模块时的回退
+                moduleContext = '（无特定学习材料上下文）';
+        }
+
+        // 设置最终的 AI 上下文
+        setAiContext(`${basePrompt}\n\n${contextTitle}:\n${moduleContext}`);
         setChatOpen(true);
         return; 
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     
     if (activeModule === moduleName && isChatOpen) {
       return; 
@@ -541,10 +600,10 @@ function CoreExplorer({ topic, setTopic,addNodeToMap, questProgress, setQuestPro
         context = `史料对比:\n${coreData.sources.sources.map(src => `标题: ${src.title}\n视角: ${src.viewpoint}\n片段: "${src.snippet}"`).join('\n\n')}`;
         aiPrompt = '你现在正在指导学生完成"史料分析"任务。请利用苏格拉底教育法，通过提问，帮助学生对比多方史料证据。';
         break;
-      case '任务四：历史批判思维训练':
-        taskType = '历史批判思维训练';
+      case '任务四：反思总结':
+        taskType = '反思总结';
         context = cards.map(card => `【${card.title}】:\n${card.content || '未填写'}`).join('\n\n');
-        aiPrompt = '你现在正在指导学生完成"历史批判思维训练"任务。请利用苏格拉底教育法，引导学生进行更高层次的反思，融合偶然性、复杂性、历史之重要性和伦理维度。';
+        aiPrompt = '你现在正在指导学生完成"反思总结"任务。请利用苏格拉底教育法，引导学生进行更高层次的反思，融合偶然性、复杂性、历史之重要性和伦理维度。';
         break;
     }
 
@@ -916,6 +975,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   const currentTargetRef = useRef(null);
   const summaryCache = useRef(new Map()).current;
   const [timelineItems, setTimelineItems] = useState([]);
+  const hoverTimerRef = useRef(null); // <--- 新增 Ref 管理定时器
   
   const [highlightedSourceText, setHighlightedSourceText] = useState('');
 
@@ -1111,33 +1171,76 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
     message.success('已在原文中定位到相关内容！');
   };
 
-  const handleLinkMouseOver = useCallback(async (e) => {
+ const handleLinkMouseOver = useCallback(async (e) => {
     const target = e.target.closest('a[href^="https://zh.wikipedia.org/wiki/"]');
-    clearTimeout(hideTimer.current);
+    clearTimeout(hideTimer.current); // 清除隐藏的定时器
+    clearTimeout(hoverTimerRef.current); // <--- 清除可能存在的显示定时器
+
     if (!target || target === currentTargetRef.current) return;
-    currentTargetRef.current = target;
+    currentTargetRef.current = target; // 记录当前目标
+
     const term = decodeURIComponent(target.getAttribute('href').split('/wiki/')[1]).replace(/_/g, ' ');
     if (!term || term === topic || term.includes(':')) return;
+
+    // 获取位置信息，准备 Popover 状态
     const rect = target.getBoundingClientRect();
-    setPopover(p => ({ ...p, visible: true, content: <Spin size="small" />, title: `加载中: ${term}`, top: rect.bottom + 15, left: rect.left, }));
-    let summaryText = summaryCache.get(term);
-    if (!summaryText) {
-      try {
-        const response = await getWikiPreview(term);
-        summaryText = response.data.summary || '此词条暂无可用预览。';
-        summaryCache.set(term, summaryText);
-      } catch (error) { console.error("加载维基百科预览失败:", error); summaryText = '加载预览失败。'; }
+    const POPOVER_WIDTH = 350; // 定义 Popover 的大致宽度
+    const GAP = 15; // 定义 Popover 与目标元素的间隙
+    let left = rect.left;
+    if (left + POPOVER_WIDTH > window.innerWidth) {
+        left = window.innerWidth - POPOVER_WIDTH - GAP;
     }
-    const POPOVER_WIDTH = 350, POPOVER_HEIGHT = 150, GAP = 15;
-    let top = 0, left = 0;
-    if (window.innerHeight - rect.bottom > POPOVER_HEIGHT + GAP) { top = rect.bottom + GAP; left = rect.left; }
-    else { top = rect.top - POPOVER_HEIGHT - GAP; left = rect.left; }
-    if (left + POPOVER_WIDTH > window.innerWidth) { left = window.innerWidth - POPOVER_WIDTH - GAP; }
     if (left < 0) { left = GAP; }
-    if (target === currentTargetRef.current) { setPopover({ visible: true, content: summaryText, title: term, top, left }); }
+
+    const preliminaryPopoverState = {
+        visible: true, // 先设置为可见以显示加载中
+        content: <Spin size="small" />,
+        title: `加载中: ${term}`,
+        top: rect.bottom + GAP, // 默认显示在下方
+        left: left,
+    };
+
+    // --- 启动一个 1 秒的定时器 ---
+    hoverTimerRef.current = setTimeout(async () => {
+        // 定时器触发后，正式开始获取数据并显示
+        setPopover(preliminaryPopoverState); // 显示加载中...
+
+        let summaryText = summaryCache.get(term);
+        if (!summaryText) {
+            try {
+                const response = await getWikiPreview(term);
+                summaryText = response.data.summary || '此词条暂无可用预览。';
+                summaryCache.set(term, summaryText);
+            } catch (error) {
+                console.error("加载维基百科预览失败:", error);
+                summaryText = '加载预览失败。';
+            }
+        }
+
+        // 重新计算精确位置（考虑 Popover 高度）
+        const POPOVER_HEIGHT = 150; // 定义 Popover 的大致高度
+        let finalTop = 0;
+        if (window.innerHeight - rect.bottom > POPOVER_HEIGHT + GAP) {
+            finalTop = rect.bottom + GAP; // 足够空间，显示在下方
+        } else {
+            finalTop = rect.top - POPOVER_HEIGHT - GAP; // 空间不足，显示在上方
+        }
+        
+        // 只有当鼠标仍然在目标上时才更新 Popover 内容
+        if (target === currentTargetRef.current) {
+             setPopover({
+                visible: true,
+                content: summaryText,
+                title: term,
+                top: finalTop, // 使用最终计算的位置
+                left: left
+            });
+        }
+    }, 1000); // <--- 1000毫秒 = 1秒
+
   }, [topic, summaryCache]);
 
-  const handleLinkMouseOut = useCallback(() => { currentTargetRef.current = null; hideTimer.current = setTimeout(() => { setPopover(p => ({ ...p, visible: false })); }, 200); }, []);
+  const handleLinkMouseOut = useCallback(() => { clearTimeout(hoverTimerRef.current); currentTargetRef.current = null; hideTimer.current = setTimeout(() => { setPopover(p => ({ ...p, visible: false })); }, 200); }, []);
   const handleTimelineChange = (id, field, value) => { 
     setTimelineItems(items => 
       items.map(item => 
@@ -2098,7 +2201,7 @@ function HistoricalCriticalThinkingSection({
     ).join('\n\n---\n\n');
 
     const fullContent = `
-历史批判思维训练
+反思总结
 ==================
 
 ${content.trim()}
@@ -2107,7 +2210,7 @@ ${content.trim()}
     const blob = new Blob([fullContent.trim()], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${topic}-历史批判思维训练.txt`;
+    link.download = `${topic}-反思总结.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2157,7 +2260,7 @@ ${questProgress?.completedModules?.map(module => `✅ ${module}`).join('\n') || 
 ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\n\n')}
 
 ## 批判性思考总结
-通过四个维度的深度学习和批判性思维训练，我形成了对历史事件的独特视角和独立思考。这份报告记录了我的批判性分析过程和最终判断。
+通过四个维度的深度学习和反思总结，我形成了对历史事件的独特视角和独立思考。这份报告记录了我的批判性分析过程和最终判断。
 
 ---
 *此报告体现了历史批判思维训练成果*
@@ -2187,7 +2290,7 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
             ghost
             size="small"
             icon={<MessageOutlined />}
-            onClick={() => setChatTrigger('任务四：历史批判思维训练')} 
+            onClick={() => setChatTrigger('任务四：反思总结')} 
             style={{ marginLeft: 16 }}
           >
             AI引导
@@ -2485,7 +2588,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
                          </Button>
                          {currentModule === '任务三：史料分析' && (
                              <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
-                                 完成后请进入右侧笔记工作区进行历史批判思维训练
+                                 完成后请进入右侧笔记工作区进行反思总结
                              </div>
                          )}
                      </div>
@@ -2521,7 +2624,7 @@ function NotesWorkspace({
       label: (
         <Space>
           <BulbOutlined />
-          任务四：历史批判思维训练
+          任务四：反思总结
         </Space>
       ),
       children: <HistoricalCriticalThinkingSection
@@ -2569,7 +2672,7 @@ function NotesWorkspace({
       <Title level={5} style={{ marginBottom: 0 }}>
         笔记工作区
       </Title>
-      <Text type="secondary">支持历史批判思维训练、论证图谱</Text>
+      <Text type="secondary">支持反思总结、论证图谱</Text>
       <Tabs defaultActiveKey="causality" items={items} forceRender />
     </Space>
   );

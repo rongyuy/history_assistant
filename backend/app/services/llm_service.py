@@ -63,9 +63,9 @@ async def get_socratic_response_stream(request: AIChatRequest) -> AsyncGenerator
         - **佐证**: 引导用户进行交叉验证。例如："对比史料A和史料B，它们在描述...事件时有哪些相同和不同之处？出现了哪些矛盾？"
         - **证据评估**: 引导用户评估史料的可靠性。例如："你认为哪一份史料更可信？为什么？"
         """
-    elif request.current_module == "模块四：历史批判思维训练":
+    elif request.current_module == "模块四：反思总结":
         system_prompt += """
-        你正处于【模块四：历史批判思维训练】。
+        你正处于【模块四：反思总结】。
         你的任务是：引导用户进行更高层次的反思，融合**偶然性**、**复杂性**和**伦理维度**。
         - **偶然性与复杂性**: 引导用户思考历史的多种可能性。例如："如果...这个条件改变了，历史的走向可能会有什么不同？" "这个事件中有哪些看似矛盾但又同时存在的现象？"
         - **历史之重要性**: 引导用户评估事件的长远影响。例如："为什么我们今天还要学习和讨论这个事件？它对后世产生了哪些深远的影响？"
@@ -607,7 +607,7 @@ def generate_thinking_hints(topic: str, card_title: str) -> dict:
     print(f"LLM Service: Generating thinking hints for topic='{topic}', card_title='{card_title}'")
     
     system_prompt = f"""
-你是一名专业的历史学导师。你的任务是帮助学生进行批判性思维训练。
+你是一名专业的历史学导师。你的任务是帮助学生进行批判性的反思总结。
 学生正在研究的历史主题是："{topic}"。
 他们正在尝试回答一个具体的问题卡片，标题为："{card_title}"。
 

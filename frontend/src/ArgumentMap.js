@@ -151,7 +151,7 @@ export default function ArgumentMap({
       if (existingCardNodes) {
         // message.info('卡片内容均已清空，正在更新图谱...'); // 已被 handleSave 覆盖
       } else {
-        message.warning('请先在“历史批判性思维训练”中填写至少一张卡片的内容。');
+        message.warning('请先在“反思总结”中填写至少一张卡片的内容。');
         return;
       }
     }
@@ -336,7 +336,7 @@ export default function ArgumentMap({
             type="primary"
             style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
           >
-            {isGenerating ? 'AI分析中...' : '基于批判性思维训练生成图谱'}
+            {isGenerating ? 'AI分析中...' : '基于反思总结生成图谱'}
           </Button>
           {/* ▼▼▼ 6. 这个按钮现在调用的是新的本地函数 ▼▼▼ */}
           <Button icon={<PlusOutlined />} onClick={addBlankNode}>
