@@ -401,7 +401,7 @@ function WelcomePage() {
                                 3. <strong>史料分析</strong> - 对比多方史料证据
                             </Paragraph>
                             <Paragraph style={{ color: 'white', marginBottom: '0' }}>
-                                4. <strong>历史批评思维训练</strong> - 形成你的历史判断
+                                4. <strong>总结反思</strong> - 形成你的历史判断
                             </Paragraph>
                         </div>
                         <Paragraph type="secondary">
