@@ -15,6 +15,7 @@ class AIChatRequest(BaseModel):
     topic: str
     current_module: str
     context_text: Optional[str] = None
+    card_title: Optional[str] = None
 
 # --- 维基百科相关 (修改后) ---
 class TimelineEvent(BaseModel):

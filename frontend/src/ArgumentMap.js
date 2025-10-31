@@ -19,6 +19,13 @@ const defaultNodeWidth = 150;
 const defaultNodeHeight = 50;
 const centralNodeId = 'central-topic'; // Define central node ID as a constant
 
+// ▼▼▼ 【新增】定义布局锚点 ▼▼▼
+// "展示区" (上半部分) 的中心 Y 坐标
+const TOP_Y_ANCHOR = 150; 
+// "草稿区" (下半部分) 在屏幕中的垂直位置比例 (70% 靠下的位置)
+const BOTTOM_Y_VIEWPORT_RATIO = 0.7; 
+// ▲▲▲ 【新增结束】 ▲▲▲
+
 export default function ArgumentMap({
   nodes,
   edges,
@@ -108,7 +115,8 @@ export default function ArgumentMap({
   const addBlankNode = useCallback(() => {
     if (!reactFlowWrapper.current) {
       // Fallback, just in case ref is not ready
-      const fallbackPos = { x: 300, y: 200 };
+      // ▼▼▼ 【修改】备用位置也放在下半区 ▼▼▼
+      const fallbackPos = { x: 300, y: TOP_Y_ANCHOR + 500 }; // (y=650)
       const newNode = {
         id: `node-${Date.now()}`,
         type: 'textUpdater',
@@ -122,19 +130,20 @@ export default function ArgumentMap({
     // 获取 React Flow 容器的宽度和高度
     const { width, height } = reactFlowWrapper.current.getBoundingClientRect();
     
-    // 计算屏幕的中心点（像素坐标）
-    const centerOfScreen = {
+    // ▼▼▼ 【修改】计算屏幕 "下半部分" 的中心点 ▼▼▼
+    const centerOfBottomHalf = {
       x: width / 2,
-      y: height / 2,
+      y: height * BOTTOM_Y_VIEWPORT_RATIO, // 使用我们定义的比例 (e.g., 70% 靠下)
     };
     
-    // 使用 project 函数将“屏幕中心点”转换为“图谱坐标系”
-    const position = project(centerOfScreen);
+    // 使用 project 函数将“屏幕坐标”转换为“图谱坐标系”
+    const position = project(centerOfBottomHalf);
+    // ▲▲▲ 【修改结束】 ▲▲▲
 
     const newNode = {
       id: `node-${Date.now()}`,
       type: 'textUpdater',
-      position: position, // 使用计算出的中心位置
+      position: position, // 使用计算出的 "草稿区" 中心位置
       data: { label: '双击编辑' },
     };
     setNodes((nds) => [...nds, newNode]);
@@ -167,11 +176,16 @@ export default function ArgumentMap({
       const validEdgeIds = new Set(contentCards.map(card => `edge-to-card-node-${card.id}`));
 
       // 【布局核心修改 1/3】
-      let newCentralPosition = { x: 300, y: 200 }; // 默认位置
+      // ▼▼▼ 【修改】将中心位置固定到 "上半部分" 的锚点 ▼▼▼
+      let newCentralPosition = { x: 300, y: TOP_Y_ANCHOR }; // 默认位置
+      // ▲▲▲ 【修改结束】 ▲▲▲
+      
       if (existingNodeIds.has(centralNodeId)) {
          const existingCentral = currentNodes.find(n => n.id === centralNodeId);
          if (existingCentral) {
-             newCentralPosition = existingCentral.position; // 优先使用现有位置
+             // ▼▼▼ 【修改】如果中心节点已存在，只更新 x 坐标，保持 y 坐标在锚点 ▼▼▼
+             newCentralPosition = { ...existingCentral.position, y: TOP_Y_ANCHOR }; // 优先使用现有 x 位置, 但 y 坐标固定
+             // ▲▲▲ 【修改结束】 ▲▲▲
          }
       }
 
@@ -307,7 +321,7 @@ export default function ArgumentMap({
 
     }, 500);
 
-  }, []); 
+  }, [setNodes, setEdges, project, setCenter]); // <-- 确保依赖项完整
   
   return (
     // ▼▼▼ 5. 将 ref 添加到这个 div 上 ▼▼▼

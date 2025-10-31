@@ -170,12 +170,21 @@ function InquiryPageContent() {
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
 
   const addNodeToMap = (text) => {
+    
+    // ▼▼▼ 【修改这一部分】 ▼▼▼
+    // 我们不再使用完全随机的位置，
+    // 而是将新节点固定放置在 "草稿区" (y坐标较大的地方)
     const newNode = {
       id: `node-${Date.now()}`,
       type: 'textUpdater',
-      position: { x: Math.random() * 400, y: Math.random() * 400 },
+      position: { 
+        x: 300 + (Math.random() * 400 - 200), // 在中心点附近左右随机
+        y: 600 + (Math.random() * 100)        // 在 y=600 的水平线附近上下随机
+      },
       data: { label: text },
     };
+    // ▲▲▲ 【修改结束】 ▲▲▲
+
     setNodes((nds) => [...nds, newNode]);
   };
 
@@ -447,6 +456,7 @@ function CoreExplorer({
   const [textForTimeline, setTextForTimeline] = useState(null);
   const [isShuffling, setIsShuffling] = useState(false);
   const [contextMenuItems, setContextMenuItems] = useState([]);
+  const [currentCardTitle, setCurrentCardTitle] = useState(null);
 
   const { message } = AntdApp.useApp();
 
@@ -552,7 +562,7 @@ function CoreExplorer({
     }
   };
 
-  const handleActivateModule = useCallback(async (moduleName, selectedText = null) => {
+  const handleActivateModule = useCallback(async (moduleName, selectedText = null, cardTitle = null) => {
     if (moduleName === '针对选中内容提问') {
         console.warn('handleActivateModule called with obsolete module name, recovering...');
         moduleName = activeModule || '任务一：史实认知'; 
@@ -692,16 +702,20 @@ ${contextModule4}
     }
     
     setAiContext(finalContext);
+
+    setCurrentCardTitle(moduleName === '任务四：反思总结' ? cardTitle : null);
+
     setChatOpen(true);
 
   }, 
-  [activeModule, isChatOpen, coreData, cards, setAiContext, setChatOpen, setCurrentModule, setActiveModule, setMsgs, chatHistoriesRef, fullHtmlContent, initialWelcomeMessages, setChatValue, chatDraftsRef]
+  [activeModule, isChatOpen, coreData, cards, setAiContext, setChatOpen, setCurrentModule, setActiveModule, setMsgs, chatHistoriesRef, fullHtmlContent, initialWelcomeMessages, setChatValue, chatDraftsRef, setCurrentCardTitle]
   );
 
   useEffect(() => {
     if (chatTrigger) {
       const moduleName = chatTrigger.module || chatTrigger;
       const selectedText = chatTrigger.selectedText || null;
+      const cardTitle = chatTrigger.card_title || null;
       
       handleActivateModule(moduleName, selectedText); 
 
@@ -912,6 +926,7 @@ ${contextModule4}
          questProgress={questProgress}
          completeTask={completeTask}
          chatDraftsRef={chatDraftsRef}
+         cardTitle={currentCardTitle}
        />
     </div>
   );
@@ -2080,7 +2095,8 @@ function EditableCard({
           setChatValue(`针对“${selectedText}”我想问：`);
           setChatTrigger({ 
             module: '任务四：反思总结', 
-            selectedText: selectedText 
+            selectedText: selectedText,
+            card_title: card.title
           });
         } else {
           message.warning('没有选中文本');
@@ -2102,10 +2118,11 @@ function EditableCard({
       key: 'ask-ai',
       label: '问问AI这段内容...',
       onClick: () => {
-        setChatValue(`针对“${hintText}”我想问：`);
+        setChatValue(`针对“${hintText}”我想问：从这个角度如何分析理解“${card.title}”`);
         setChatTrigger({ 
           module: '任务四：反思总结', 
-          selectedText: hintText 
+          selectedText: hintText,
+          card_title: card.title
         });
       }
     }
@@ -2514,7 +2531,7 @@ ${cards.map(card => `### ${card.title}\n${card.content || '未填写'}`).join('\
 // ▲▲▲ 【HistoricalCriticalThinkingSection 修改结束】 ▲▲▲
 
 
-function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask,msgs, setMsgs, chatDraftsRef }) {
+function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOpen, chatValue, setChatValue, questProgress, completeTask,msgs, setMsgs, chatDraftsRef, cardTitle }) {
     const CONTENT_PADDING = 24;
     const SIDER_WIDTH_PERCENT = '35%';
     const RIGHT_OFFSET = `calc(${SIDER_WIDTH_PERCENT} + ${CONTENT_PADDING}px)`;
@@ -2597,6 +2614,7 @@ function AIChatDock({ topic, addNodeToMap, currentModule, aiContext, open, setOp
             topic: topic,
             current_module: currentModule,
             context_text: aiContext,
+            card_title: cardTitle,
         };
 
         try {
