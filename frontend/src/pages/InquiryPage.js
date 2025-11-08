@@ -72,7 +72,7 @@ export default function InquiryPage() {
 
 function InquiryPageContent() {
   const [topic, setTopic] = useState('');
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(''); // <-- 确保 inputValue 存在
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [questProgress, setQuestProgress] = useState({
@@ -94,7 +94,7 @@ function InquiryPageContent() {
     { id: 3, title: '事件的深层原因', content: '', placeholder: '探讨事件背后更深层次的政治、经济、社会或文化原因。' },
     { id: 4, title: '触发事件', content: '', placeholder: '是哪个具体的事件或行动最终引爆了整个事态？' },
     { id: 5, title: '历史影响', content: '', placeholder: '该事件对当时及后来的历史发展产生了哪些短期和长期的影响？' },
-    { id: 6, title: '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天的生活有什么启示？' },
+    { id: 6, 'title': '历史意义反思', content: '', placeholder: '这个事件在历史长河中的真正意义是什么？对今天的生活有什么启示？' },
   ], []);
   const [cards, setCards] = useState(initialCards);
   const [chatTrigger, setChatTrigger] = useState(null);
@@ -103,6 +103,7 @@ function InquiryPageContent() {
   // ▼▼▼ 【第A步：状态提升】 ▼▼▼
   const [loadingStates, setLoadingStates] = useState({ summary: true, viewpoints: true, sources: true });
   const [initialLoading, setInitialLoading] = useState(true);
+  const [viewpointsPreloaded, setViewpointsPreloaded] = useState(false);
   const [error, setError] = useState(null);
   const [coreData, setCoreData] = useState({
     wikiSummary: { summary: '', timeline: [] },
@@ -171,9 +172,6 @@ function InquiryPageContent() {
 
   const addNodeToMap = (text) => {
     
-    // ▼▼▼ 【修改这一部分】 ▼▼▼
-    // 我们不再使用完全随机的位置，
-    // 而是将新节点固定放置在 "草稿区" (y坐标较大的地方)
     const newNode = {
       id: `node-${Date.now()}`,
       type: 'textUpdater',
@@ -183,62 +181,9 @@ function InquiryPageContent() {
       },
       data: { label: text },
     };
-    // ▲▲▲ 【修改结束】 ▲▲▲
 
     setNodes((nds) => [...nds, newNode]);
   };
-
-  // ▼▼▼ 【第B步：useEffect 数据获取逻辑上移】 ▼▼▼
-  useEffect(() => {
-    if (!topic) return;
-
-    const fetchData = () => {
-      setInitialLoading(true);
-      setError(null);
-      setCoreData({
-        wikiSummary: { summary: '', timeline: [] },
-        viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
-        sources: { sources: [] },
-      });
-      setLoadingStates({ summary: true, viewpoints: true, sources: true });
-
-      message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
-
-      setInitialLoading(false);
-
-      getWikiData(topic).then(res => {
-        setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史实认知': 'active' }}));
-        message.info('📚 史实认知任务已激活！');
-      }).catch(err => {
-        console.error("模块一加载失败:", err);
-      }).finally(() => {
-        setLoadingStates(prev => ({ ...prev, summary: false }));
-      });
-
-      getViewpointAnalysis(topic).then(res => {
-        setCoreData(prev => ({ ...prev, viewpoints: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '观点辨析': 'active' }}));
-      }).catch(err => {
-        console.error("模块二加载失败:", err);
-      }).finally(() => {
-        setLoadingStates(prev => ({ ...prev, viewpoints: false }));
-      });
-
-      getSourcesComparison(topic).then(res => {
-        setCoreData(prev => ({ ...prev, sources: res.data }));
-        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史料分析': 'active', '反思总结': 'active' }}));
-      }).catch(err => {
-        console.error("模块三加载失败:", err);
-      }).finally(() => {
-        setLoadingStates(prev => ({ ...prev, sources: false }));
-      });
-    };
-
-    fetchData();
-  }, [topic, setQuestProgress, message]); // <-- 确保 'message' 在依赖项中
-  // ▲▲▲ useEffect 上移结束 ▲▲▲
-
 
   const handleSearch = () => {
     if (inputValue && inputValue.trim()) {
@@ -297,13 +242,13 @@ function InquiryPageContent() {
             }}
           >
             {topic ? (
-              // ▼▼▼ 【第C步：传递 Props 给 CoreExplorer】 ▼▼▼
               <CoreExplorer
                 topic={topic}
                 setTopic={setTopic}
                 addNodeToMap={addNodeToMap}
                 questProgress={questProgress}
                 setQuestProgress={setQuestProgress}
+                setViewpointsPreloaded={setViewpointsPreloaded}
                 completeTask={completeTask} 
                 cards={cards} 
                 chatTrigger={chatTrigger} 
@@ -321,8 +266,11 @@ function InquiryPageContent() {
                 setIsFullContentLoading={setIsFullContentLoading}
                 initialLoading={initialLoading}
                 error={error}
-                chatDraftsRef={chatDraftsRef}
+                // ▼▼▼ 修复：传递 setInitialLoading 和 setError ▼▼▼
+                setInitialLoading={setInitialLoading} // <-- 修复关键错误
+                setError={setError}                     // <-- 修复关键错误
                 // --- 结束 ---
+                chatDraftsRef={chatDraftsRef}
               />
             ) : (
               <WelcomePage />
@@ -339,7 +287,6 @@ function InquiryPageContent() {
               height: '100%',
             }}
           >
-            {/* ▼▼▼ 【第D步：传递 Props 给 NotesWorkspace】 ▼▼▼ */}
             <NotesWorkspace
               topic={topic}
               nodes={nodes}
@@ -418,8 +365,17 @@ function WelcomePage() {
 function CoreExplorer({ 
   topic, setTopic,addNodeToMap, questProgress, setQuestProgress, completeTask, cards, chatTrigger, setChatTrigger, chatValue, setChatValue,
   // --- 接收 Props ---
-  coreData, setCoreData, fullHtmlContent, setFullHtmlContent, loadingStates, setLoadingStates, isFullContentLoading, setIsFullContentLoading, initialLoading, error, chatDraftsRef
+  coreData, setCoreData, fullHtmlContent, setFullHtmlContent, loadingStates, setLoadingStates, isFullContentLoading, setIsFullContentLoading, 
+  initialLoading, setInitialLoading, error, setError, setViewpointsPreloaded,
+  chatDraftsRef
 }) {
+  // ▼▼▼ 关键修复：新增 Ref 跟踪消息发送状态 ▼▼▼
+  const messageSentRef = useRef({
+    '史实认知': false,
+    '观点辨析': false,
+    '史料分析': false
+  });
+  // ▲▲▲ 关键修复结束 ▼▼▼
 
   const initialWelcomeMessages = useMemo(() => ({
     '任务一：史实认知': '我们已进入【史实认知】模块。请先阅读下方的摘要和时间线，然后可以点击“智能阅读”深入探索原文。准备好后，我们就可以开始提问式学习了。',
@@ -438,15 +394,6 @@ function CoreExplorer({
 
   const [msgs, setMsgs] = useState([{ role: 'ai', text: initialWelcomeMessages['generic'] }]);
   
-  // --- 【删除】以下所有状态，因为它们被上移了 ---
-  // const [loadingStates, setLoadingStates] = useState(...);
-  // const [initialLoading, setInitialLoading] = useState(true);
-  // const [error, setError] = useState(null);
-  // const [coreData, setCoreData] = useState(...);
-  // const [fullHtmlContent, setFullHtmlContent] = useState('');
-  // const [isFullContentLoading, setIsFullContentLoading] = useState(false);
-  // --- 【删除结束】---
-
   const [aiContext, setAiContext] = useState('');
   const [isChatOpen, setChatOpen] = useState(false); 
   const [currentModule, setCurrentModule] = useState('模块一：史实认知');
@@ -460,10 +407,10 @@ function CoreExplorer({
 
   const { message } = AntdApp.useApp();
 
-  const handleMenuOpenChange = (isOpen, moduleName) => { // <-- 注意：增加了 moduleName 参数
+  const handleMenuOpenChange = (isOpen, moduleName) => { 
     if (isOpen) {
       const currentSelectedText = window.getSelection().toString().trim();
-      setSelectedTextForMenu(currentSelectedText); // 状态依然保留
+      setSelectedTextForMenu(currentSelectedText); 
 
       const currentActiveModule = moduleName; 
 
@@ -485,21 +432,14 @@ function CoreExplorer({
           label: '问问AI这段内容...',
           onClick: () => {
             if (currentSelectedText) {
-                // ▼▼▼ 【这是你的修复】 ▼▼▼
-
-                // 1. 先把要填充的草稿定义为一个变量
                 const draftText = `针对“${currentSelectedText}”我想问：`;
                 
-                // 2. 像以前一样，更新 state 以立即显示在输入框中
                 setChatValue(draftText);
                 
-                // 3. 【新增】同时，把这份草稿存入 Ref 中
                 if (chatDraftsRef.current) {
                   chatDraftsRef.current[currentActiveModule] = draftText;
                 }
                 
-                // ▲▲▲ 修复结束 ▲▲▲
-
                 setChatTrigger({ 
                   module: currentActiveModule, 
                   selectedText: currentSelectedText 
@@ -508,7 +448,7 @@ function CoreExplorer({
             } else {
               message.warning('请先选择一段文本再右键操作');
             }
-          }
+          },
         },
       ];
 
@@ -532,7 +472,77 @@ function CoreExplorer({
     }
   };
 
-  // --- 【删除】整个 useEffect[topic] (fetchData)，因为它被上移了 ---
+  
+  // ▼▼▼ 【CoreExplorer 的数据获取 useEffect - 修正消息重复和激活时序】 ▼▼▼
+ useEffect(() => {
+    if (!topic) return;
+
+    const fetchData = () => {
+      setInitialLoading(true); 
+      setError(null);
+      setCoreData({
+        wikiSummary: { summary: '', timeline: [] },
+        viewpoints: { faction_roles: [], viewpoints: [], debates: [] },
+        sources: { sources: [] },
+      });
+      setLoadingStates({ summary: true, viewpoints: true, sources: true });
+
+      message.loading({ content: `正在为您准备关于“${topic}”的探究模块...`, key: 'data', duration: 1 });
+
+      // 重置预加载状态
+      setViewpointsPreloaded(false); // 开始加载时重置
+      messageSentRef.current = { '史实认知': false, '观点辨析': false, '史料分析': false }; // 🚨 关键：重置消息 Ref
+
+      setInitialLoading(false); 
+
+      getWikiData(topic).then(res => {
+        setCoreData(prev => ({ ...prev, wikiSummary: res.data }));
+        // 模块一激活
+        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史实认知': 'active' }}));
+        
+        // 🚨 关键修复：使用 Ref 检查是否已发送
+        if (!messageSentRef.current['史实认知']) {
+            message.info('📚 史实认知任务已激活！'); 
+            messageSentRef.current['史实认知'] = true;
+        }
+      }).catch(err => {
+        console.error("模块一加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, summary: false }));
+      });
+
+      // **模块二数据获取**
+      getViewpointAnalysis(topic).then(res => {
+        setCoreData(prev => ({ ...prev, viewpoints: res.data }));
+      }).catch(err => {
+        console.error("模块二加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, viewpoints: false }));
+        // **关键修复 2：仅在数据获取完成后，显示预加载开始的消息**
+        message.info('💡 观点辨析开始预加载细则...'); 
+      });
+
+      // **模块三数据获取**
+      getSourcesComparison(topic).then(res => {
+        setCoreData(prev => ({ ...prev, sources: res.data }));
+        setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '史料分析': 'active', '反思总结': 'active' }}));
+        
+        // 🚨 关键修复：使用 Ref 检查是否已发送
+        if (!messageSentRef.current['史料分析']) {
+            message.info('📊 史料分析任务已激活！');
+            messageSentRef.current['史料分析'] = true;
+        }
+      }).catch(err => {
+        console.error("模块三加载失败:", err);
+      }).finally(() => {
+        setLoadingStates(prev => ({ ...prev, sources: false }));
+      });
+    };
+
+    fetchData();
+  // 依赖数组保持不变
+  }, [topic, setQuestProgress, message, setInitialLoading, setError, setCoreData, setLoadingStates, setViewpointsPreloaded]);
+
 
   const ensureFullContentFetched = async () => {
     if (fullHtmlContent && fullHtmlContent.content) {
@@ -573,8 +583,6 @@ function CoreExplorer({
     }
 
     if (!selectedText) {
-      // 如果是点击“AI引导”按钮 (不是右键)
-      // 我们就从 Ref 加载这个模块对应的草稿
       setChatValue(chatDraftsRef.current[moduleName] || '');
     }
 
@@ -594,7 +602,6 @@ function CoreExplorer({
     let context = '';
     let contextTitle = '学习材料';
     
-    // (这个 switch 语句依赖 props: fullHtmlContent, coreData, cards)
     switch (moduleName) {
       case '任务一：史实认知': { 
         aiPrompt = '你现在正在指导学生完成"史实认知"任务。';
@@ -851,6 +858,7 @@ ${contextModule4}
                     </div>
                   </Dropdown>
                 ),
+                forceRender: true, 
               },
               {
                 key: "views", 
@@ -874,10 +882,22 @@ ${contextModule4}
                         data={coreData.viewpoints} 
                         topic={topic} 
                         isActive={activeCollapseKeys.includes('views')}
+                        onPreloadComplete={() => {
+                            setViewpointsPreloaded(true);
+                            // 仅在预加载完成时激活，实现您“预加载完成才变蓝”的需求
+                            setQuestProgress(prev => ({ ...prev, moduleStates: { ...prev.moduleStates, '观点辨析': 'active' }}));
+                            
+                            // 🚨 关键修复：使用 Ref 检查是否已发送
+                            if (!messageSentRef.current['观点辨析']) {
+                                message.success('💡 观点辨析任务已激活！');
+                                messageSentRef.current['观点辨析'] = true;
+                            }
+                        }}
                       />}
                     </div>
                   </Dropdown>
                 ),
+                forceRender: true, 
               },
               {
                 key: "sources", 
@@ -907,6 +927,7 @@ ${contextModule4}
                     </div>
                   </Dropdown>
                 ),
+                forceRender: true, 
               },
             ]}
           />
@@ -931,7 +952,6 @@ ${contextModule4}
     </div>
   );
 }
-// ▲▲▲ 【CoreExplorer 清理结束】 ▲▲▲
 
 function QuestProgress({ questProgress }) {
   const { completedModules, currentTask, totalTasks, moduleStates } = questProgress;
@@ -1592,7 +1612,7 @@ function WikiSummaryCard({ data, topic, fullHtmlContent, isFullContentLoading, e
   );
 }
 
-function ViewpointAnalysis({ data, topic, isActive }) {
+function ViewpointAnalysis({ data, topic, isActive, onPreloadComplete }) {
     const [selectedDebate, setSelectedDebate] = useState(null);
     const [detailedViewpoints, setDetailedViewpoints] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -1601,8 +1621,17 @@ function ViewpointAnalysis({ data, topic, isActive }) {
     const [isDiscussionHtmlLoading, setIsDiscussionHtmlLoading] = useState(false);
     const [highlightedTocItems, setHighlightedTocItems] = useState([]);
     const [scrollToSectionTitle, setScrollToSectionTitle] = useState(null);
-    const [displayDebates, setDisplayDebates] = useState(data.debates || []);
+    const [displayDebates, setDisplayDebates] = useState(data.debates || []); 
     const [isRefreshingDebates, setIsRefreshingDebates] = useState(false);
+    
+    // ▼▼▼ 核心状态：用于存储预加载的详细分析结果 ▼▼▼
+    const [preloadedDetails, setPreloadedDetails] = useState({}); 
+    // ▲▲▲ 核心状态结束 ▼▼▼
+    
+    // ▼▼▼ 关键修复：新增 Ref 来防止重复触发 ▼▼▼
+    const preloadCallbackSent = useRef(false);
+    // ▲▲▲ 关键修复结束 ▼▼▼
+    
     const contentRef = useRef(null);
     
     const { message } = AntdApp.useApp();
@@ -1613,8 +1642,83 @@ function ViewpointAnalysis({ data, topic, isActive }) {
         setDetailedViewpoints([]);
         setHighlightedTocItems([]);
         setScrollToSectionTitle(null);
+        // 【预加载持久化】在组件折叠时，保留已预加载的 details
+      } else {
+         // 当重新激活时，确保显示最新的争议点列表
+         setDisplayDebates(data.debates || []);
       }
-    }, [isActive]); 
+    }, [isActive, data.debates]); 
+    
+    // ▼▼▼ 核心函数：执行预加载任务 ▼▼▼
+    const preloadDebateDetails = useCallback((debates) => {
+        if (!debates || debates.length === 0) return;
+
+        // 优化：只对尚未加载或加载失败的 debateItem 进行预加载
+        debates.forEach(debateItem => {
+            const existingState = preloadedDetails[debateItem];
+            // 如果已加载成功，或者正在加载，则跳过
+            if (existingState && (existingState.data || existingState.loading)) {
+                return;
+            }
+            
+            // 标记为加载中
+            setPreloadedDetails(prev => ({ 
+                ...prev, 
+                [debateItem]: { loading: true, data: null } 
+            }));
+
+            // 异步调用 API
+            getDiscussionDetails(topic, debateItem)
+                .then(response => {
+                    setPreloadedDetails(prev => ({ 
+                        ...prev, 
+                        [debateItem]: { loading: false, data: response.data } 
+                    }));
+                })
+                .catch(error => {
+                    console.error(`Preload failed for ${debateItem}:`, error);
+                    setPreloadedDetails(prev => ({ 
+                        ...prev, 
+                        [debateItem]: { loading: false, data: null, error: true } 
+                    }));
+                });
+        });
+    }, [topic, preloadedDetails]);
+
+    // ▼▼▼ 核心 useEffect 1：监听争议点变化并触发预加载 ▼▼▼
+    useEffect(() => {
+        // 只有当 displayDebates 发生变化时才触发预加载
+        if (displayDebates && displayDebates.length > 0) {
+            preloadDebateDetails(displayDebates);
+        }
+    }, [displayDebates, preloadDebateDetails]); 
+    // ▲▲▲ 核心 useEffect 1 结束 ▼▼▲
+    
+    // ▼▼▼ 核心 useEffect 2：恢复自动通知逻辑，并加入单次触发防止无限循环 ▼▼▼
+    useEffect(() => {
+        // 🚨 核心修复：如果已发送过回调，则立即退出
+        if (preloadCallbackSent.current) {
+            return;
+        }
+        
+        const totalDebates = displayDebates.length;
+        if (totalDebates === 0) return;
+
+        const allPreloaded = displayDebates.every(debate => {
+            const state = preloadedDetails[debate];
+            // 必须存在状态，并且加载已完成 (loading: false)
+            return state && state.loading === false; 
+        });
+        
+        // 确保所有预加载都已完成，并且回调函数存在
+        if (allPreloaded && onPreloadComplete) {
+            preloadCallbackSent.current = true; // 🚨 关键：标记为已发送
+            onPreloadComplete(); 
+        }
+
+    }, [preloadedDetails, displayDebates, onPreloadComplete]); 
+    // ▲▲▲ 核心 useEffect 2 修复完成 ▼▼▲
+
 
   const handleRefreshDebates = async (e) => {
       e.stopPropagation();
@@ -1626,6 +1730,9 @@ function ViewpointAnalysis({ data, topic, isActive }) {
           const response = await refreshDebatePoints(topic, displayDebates);
           const newDebates = response.data.debates || [];
 
+          // 重置状态
+          preloadCallbackSent.current = false; // 🚨 关键：刷新时重置标记
+          setPreloadedDetails({}); 
           setDisplayDebates(newDebates);
 
           setSelectedDebate(null);
@@ -1642,8 +1749,8 @@ function ViewpointAnalysis({ data, topic, isActive }) {
       }
   };
 
-  const handleDebateClick = async (debateItem, isRefresh = false) => {
-      if (selectedDebate === debateItem && !isRefresh) { 
+  const handleDebateClick = async (debateItem) => {
+      if (selectedDebate === debateItem) { 
           setSelectedDebate(null);
           setDetailedViewpoints([]);
           setHighlightedTocItems([]); 
@@ -1652,17 +1759,19 @@ function ViewpointAnalysis({ data, topic, isActive }) {
           return;
       }
 
-      setLoading(true);
       setSelectedDebate(debateItem);
       setHighlightedTocItems([]); 
       setScrollToSectionTitle(null); 
+      setDetailedViewpoints([]);
 
-      try {
-          const response = await getDiscussionDetails(topic, debateItem);
-          const detailedData = response.data;
+      const preloadedResult = preloadedDetails[debateItem];
+
+      if (preloadedResult && !preloadedResult.loading && preloadedResult.data) {
+          // 1. 如果结果已预加载且成功，直接使用
+          const detailedData = preloadedResult.data;
           setDetailedViewpoints(detailedData.detailed_viewpoints || []);
           setHighlightedTocItems(detailedData.source_sections || []);
-
+          
           const firstSectionTitle = detailedData.source_sections?.[0];
 
           if (firstSectionTitle) {
@@ -1671,13 +1780,36 @@ function ViewpointAnalysis({ data, topic, isActive }) {
               }
               setScrollToSectionTitle(firstSectionTitle);
           }
+          message.success('已成功展开详细分析');
+          setLoading(false); 
 
-      } catch (error) {
-          console.error('获取讨论详情失败:', error);
-          message.error('获取讨论详情失败，请稍后重试');
-          setDetailedViewpoints([]);
-      } finally {
-          setLoading(false);
+      } else {
+          // 2. 如果结果未预加载或预加载失败，则手动加载
+          setLoading(true); 
+
+          try {
+              const response = await getDiscussionDetails(topic, debateItem);
+              const detailedData = response.data;
+              setDetailedViewpoints(detailedData.detailed_viewpoints || []);
+              setHighlightedTocItems(detailedData.source_sections || []);
+
+              const firstSectionTitle = detailedData.source_sections?.[0];
+
+              if (firstSectionTitle) {
+                  if (!showFullDiscussion) {
+                      handleShowFullDiscussion();
+                  }
+                  setScrollToSectionTitle(firstSectionTitle);
+              }
+              message.info('正在加载详细分析...');
+
+          } catch (error) {
+              console.error('获取讨论详情失败:', error);
+              message.error('获取讨论详情失败，请稍后重试');
+              setDetailedViewpoints([]);
+          } finally {
+              setLoading(false);
+          }
       }
   };
 
@@ -1804,38 +1936,35 @@ function ViewpointAnalysis({ data, topic, isActive }) {
                         </div>
                     }
                     dataSource={displayDebates || []}
-                    renderItem={(debateItem, index) => (
-                        <List.Item
-                            style={{
-                                cursor: 'pointer',
-                                backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
-                                borderRadius: '4px',
-                                padding: '8px',
-                                margin: '2px 0',
-                                border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
-                            }}
-                            onClick={() => handleDebateClick(debateItem)}
-                        >
-                            <Space align="start" style={{ width: '100%' }}>
-                                <Tag color={selectedDebate === debateItem ? "processing" : "default"}>{index + 1}</Tag>
-                                <Text style={{ flex: 1 }}>{debateItem}</Text>
-                                {selectedDebate === debateItem && !loading && (
-                                    <Button
-                                        type="text"
-                                        icon={<SyncOutlined />}
-                                        size="small"
-                                        onClick={(e) => {
-                                            e.stopPropagation(); 
-                                            handleDebateClick(debateItem,true);
-                                        }}
-                                        title="使用最新的阵营列表重新分析"
-                                    />
-                                )}
+                    renderItem={(debateItem, index) => {
+                        // ▼▼▼ 获取预加载状态以显示加载动画 ▼▼▼
+                        const preloadState = preloadedDetails[debateItem] || {};
+                        const itemLoading = loading || preloadState.loading;
+                        // ▲▲▲ 获取预加载状态结束 ▼▼▼
 
-                                {selectedDebate === debateItem && loading && <Spin size="small" />}
-                            </Space>
-                        </List.Item>
-                    )}
+                        return (
+                            <List.Item
+                                style={{
+                                    cursor: 'pointer',
+                                    backgroundColor: selectedDebate === debateItem ? '#e6f7ff' : 'transparent',
+                                    borderRadius: '4px',
+                                    padding: '8px',
+                                    margin: '2px 0',
+                                    border: selectedDebate === debateItem ? '1px solid #1890ff' : '1px solid transparent'
+                                }}
+                                onClick={() => handleDebateClick(debateItem)}
+                            >
+                                <Space align="start" style={{ width: '100%' }}>
+                                    <Tag color={selectedDebate === debateItem ? "processing" : "default"}>{index + 1}</Tag>
+                                    <Text style={{ flex: 1 }}>{debateItem}</Text>
+                                    
+                                    {/* ▼▼▼ 根据预加载状态显示 Spin，并删除“重新分析”按钮 ▼▼▼ */}
+                                    {itemLoading && <Spin size="small" />}
+                                    {/* ▲▲▲ 修改结束 ▼▼▼ */}
+                                </Space>
+                            </List.Item>
+                        );
+                    }}
                 />
 
                 {selectedDebate && detailedViewpoints.length > 0 && !loading && (
@@ -2052,10 +2181,21 @@ function EditableCard({
   // --- 接收新 Props ---
   coreData, fullHtmlContent 
 }) {
+  const [contentInternal, setContentInternal] = useState(card.content);
+  
+  // ▼▼▼ 关键修复点：使用 useLayoutEffect 同步外部 props 到内部 state ▼▼▼
+  useLayoutEffect(() => {
+    if (contentInternal !== card.content) {
+        // 当外部 card.content 变化（比如通过 AI 自动填充）时，同步到内部状态
+        setContentInternal(card.content);
+    }
+  }, [card.content]);
+
   const { isListening, startListening } = useSpeechRecognition(
     (transcript) => {
-      const newContent = card.content ? `${card.content}\n${transcript}` : transcript;
-      onChange(card.id, 'content', newContent);
+      const newContent = contentInternal ? `${contentInternal}\n${transcript}` : transcript;
+      setContentInternal(newContent);
+      onChange(card.id, 'content', newContent); // 只有在语音输入结束时才通知父组件
       message.success('语音输入已完成');
     }
   );
@@ -2247,8 +2387,15 @@ ${contextModule3}
             <TextArea
               variant="filled"
               rows={3}
-              value={card.content}
-              onChange={(e) => onChange(card.id, 'content', e.target.value)}
+              // ▼▼▼ 关键修复：使用内部状态进行受控输入 ▼▼▼
+              value={contentInternal}
+              onChange={(e) => setContentInternal(e.target.value)}
+              // ▲▲▲ 关键修复结束 ▼▼▼
+
+              // ▼▼▼ 关键修复：失去焦点时才通知父组件（减少渲染） ▼▼▼
+              onBlur={() => onChange(card.id, 'content', contentInternal)}
+              // ▲▲▲ 关键修复结束 ▼▼▼
+              
               placeholder={card.placeholder || '请输入内容...'}
               style={{ cursor: 'text' }}
             />
@@ -2325,9 +2472,6 @@ ${contextModule3}
     </Card>
   );
 }
-// ▲▲▲ 【EditableCard 修改结束】 ▲▲▲
-
-
 // ▼▼▼ 【第G步：修改 HistoricalCriticalThinkingSection】 ▼▼▼
 function HistoricalCriticalThinkingSection({ 
   questProgress, 

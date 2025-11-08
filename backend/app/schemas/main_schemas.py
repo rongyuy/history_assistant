@@ -133,6 +133,9 @@ class DiscussionDetailRequest(BaseModel):
     topic: str
     debate_item: str
 
+class DiscussionDetailResponse(BaseModel):
+    detail_content: str
+
 class RefreshDebatesRequest(BaseModel):
     topic: str
     existing_debates: List[str]
